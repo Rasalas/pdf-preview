@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { deployment, links, version } from '../config'
 import { isDesktop } from '../desktop'
-import { Icon } from './icons'
+import { BrandIcon, Icon } from './icons'
 
 // Desktop webviews do not open new windows; hand links to the system browser instead.
 const external = (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -45,10 +45,12 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
       <h3>Projekt</h3>
       <div className="about-links">
         <a href={links.source} target="_blank" rel="noreferrer" onClick={external}>
-          <strong>Quellcode</strong>
+          <BrandIcon name="github" mono />
+          <strong>Quellcode auf GitHub</strong>
           <span>Open Source unter MIT-Lizenz</span>
         </a>
         <a href={links.issues} target="_blank" rel="noreferrer" onClick={external}>
+          <Icon name="info" width={20} />
           <strong>Fehler melden</strong>
           <span>Ideen und Probleme als Issue</span>
         </a>
@@ -59,10 +61,12 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
           <h3>Unterstützen</h3>
           <div className="about-links">
             <a href={links.coffee} target="_blank" rel="noreferrer" onClick={external}>
+              <BrandIcon name="coffee" />
               <strong>Buy Me a Coffee</strong>
               <span>Einmaliger Beitrag</span>
             </a>
             <a href={links.sponsors} target="_blank" rel="noreferrer" onClick={external}>
+              <BrandIcon name="sponsors" />
               <strong>GitHub Sponsors</strong>
               <span>Regelmäßige Unterstützung</span>
             </a>

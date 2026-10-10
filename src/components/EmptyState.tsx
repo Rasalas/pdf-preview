@@ -1,4 +1,5 @@
 import type { Session } from '../persist'
+import { TOUCH, useMedia } from '../useMedia'
 
 interface Props {
   session: Session | null
@@ -10,6 +11,8 @@ interface Props {
 }
 
 export function EmptyState({ session, onOpen, onBlank, onRestore, onDiscard, onAbout }: Props) {
+  // Dragging files in is not a thing on phones and tablets.
+  const touch = useMedia(TOUCH)
   return (
     <div className="empty">
       <div className="empty-sheets" aria-hidden="true">
@@ -17,7 +20,7 @@ export function EmptyState({ session, onOpen, onBlank, onRestore, onDiscard, onA
         <span />
         <span />
       </div>
-      <h1>PDFs und Bilder hierher ziehen</h1>
+      <h1>{touch ? 'PDFs und Bilder öffnen' : 'PDFs und Bilder hierher ziehen'}</h1>
       <p>Kombinieren, umsortieren, drehen und als neues PDF sichern. Deine Dateien bleiben in diesem Browser und werden nirgends hochgeladen.</p>
       <div className="empty-actions">
         <button className="button is-primary" onClick={onOpen}>Dateien auswählen …</button>

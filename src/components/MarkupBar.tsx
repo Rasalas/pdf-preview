@@ -32,6 +32,9 @@ interface Props {
   onSignature: (s: Signature) => void
   onNewSignature: () => void
   onDeleteSignature: (id: string) => void
+  /** Touch layout: two rows at the bottom of the screen with a done button. */
+  compact?: boolean
+  onDone?: () => void
 }
 
 export function MarkupBar(p: Props) {
@@ -40,8 +43,8 @@ export function MarkupBar(p: Props) {
   const textMode = p.selectedKind === 'text' || (p.selectedKind === null && p.tool === 'text')
 
   return (
-    <div className="markup-bar" role="toolbar" aria-label="Markierungswerkzeuge">
-      <div className="toolbar-group">
+    <div className={`markup-bar${p.compact ? ' is-compact' : ''}`} role="toolbar" aria-label="Markierungswerkzeuge">
+      <div className="toolbar-group markup-tools">
         {TOOLS.map((t) => (
           <button key={t.tool} className="tool" title={t.label} aria-label={t.label} aria-pressed={p.tool === t.tool} onClick={() => p.onTool(t.tool)}>
             <Icon name={t.icon} />
@@ -95,8 +98,9 @@ export function MarkupBar(p: Props) {
         </div>
       </div>
 
-      <div className="markup-sep" />
+      {p.compact ? null : <div className="markup-sep" />}
 
+      <div className="markup-style">
       <div className="swatches" role="radiogroup" aria-label="Farbe">
         {(highlightMode ? HIGHLIGHT_COLORS : COLORS).map((c) => {
           const active = highlightMode ? p.highlightColor === c : p.style.color === c
@@ -146,7 +150,14 @@ export function MarkupBar(p: Props) {
           )}
         </>
       )}
-      <span className="markup-hint">{hint(p.tool, p.signature)}</span>
+      {p.compact ? (
+        <button className="button is-primary markup-done" onClick={p.onDone}>
+          Fertig
+        </button>
+      ) : (
+        <span className="markup-hint">{hint(p.tool, p.signature)}</span>
+      )}
+      </div>
     </div>
   )
 }

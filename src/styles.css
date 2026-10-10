@@ -56,7 +56,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.app { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); height: 100%; }
+.app { display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: minmax(0, 1fr); height: 100%; height: 100dvh; }
 
 /* Toolbar */
 .chrome { position: relative; z-index: 10; }
@@ -323,10 +323,6 @@ button { font: inherit; color: inherit; }
 
 .print-frame { position: fixed; right: 0; bottom: 0; width: 0; height: 0; border: 0; }
 
-@media (max-width: 760px) {
-  .toolbar { gap: 4px; padding: 0 6px; }
-  .title-meta, .zoom-label, .task-label { display: none; }
-}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
@@ -444,7 +440,8 @@ button { font: inherit; color: inherit; }
   padding: 0;
   border: 0;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.25);
+  /* Outline keeps the darkest colour visible on the dark theme. */
+  box-shadow: inset 0 0 0 1px var(--hairline), 0 0 0 1px var(--hairline);
 }
 .swatch.is-active { box-shadow: 0 0 0 2px var(--chrome-solid), 0 0 0 3.5px var(--text-2); }
 .width { display: grid; place-items: center; width: 30px; height: 24px; padding: 0 6px; border: 0; border-radius: 5px; background: none; }
@@ -544,10 +541,161 @@ button { font: inherit; color: inherit; }
 .about a { color: var(--accent-strong); }
 .about-legal { display: flex; gap: 14px; }
 .about-links { display: grid; gap: 6px; }
-.about-links a { display: flex; flex-direction: column; padding: 8px 12px; border-radius: 8px; background: var(--control); text-decoration: none; color: var(--text); }
+.about-links a {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  column-gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--control);
+  text-decoration: none;
+  color: var(--text);
+}
+.about-links a > .icon { grid-row: span 2; }
 .about-links a:hover { background: var(--control-hover); }
-.about-links span { color: var(--text-2); font-size: 12px; }
+.about-links span { grid-column: 2; color: var(--text-2); font-size: 12px; }
+.icon { display: block; flex: none; }
 .about-close { position: absolute; top: 12px; right: 12px; display: grid; padding: 4px; border: 0; border-radius: 50%; background: var(--control); color: var(--text-2); }
 .empty-footer { position: absolute; bottom: 18px; left: 0; right: 0; display: flex; justify-content: center; gap: 16px; font-size: 12px; }
 .empty-footer button { border: 0; background: none; color: var(--text-2); padding: 2px 4px; }
 .empty-footer button:hover { color: var(--text); text-decoration: underline; }
+
+/* Desktop: the style group of the markup bar flows inline. */
+.markup-style { display: contents; }
+
+/* Touch devices: larger targets everywhere, also on tablets with the desktop layout. */
+@media (pointer: coarse) {
+  .tool { width: 44px; height: 44px; }
+  .menu button { min-height: 44px; padding: 8px 14px; font-size: 16px; align-items: center; }
+  .menu { min-width: 260px; }
+  .signature-delete { opacity: 1; padding: 8px; }
+  .swatch { width: 28px; height: 28px; }
+  .button { min-height: 44px; }
+}
+
+/* Compact layout for phones and narrow windows. */
+@media (max-width: 820px) {
+  :root { font-size: 15px; }
+  .toolbar {
+    gap: 2px;
+    height: auto;
+    min-height: 56px;
+    padding: env(safe-area-inset-top) max(6px, env(safe-area-inset-right)) 0 max(6px, env(safe-area-inset-left));
+  }
+  .toolbar .toolbar-group { gap: 0; }
+  .toolbar .tool { flex: none; }
+  .title { padding-left: 2px; flex: 1; }
+  .title-input { max-width: 100%; font-size: 16px; }
+  .title-meta { font-size: 12px; }
+  .export-button { min-height: 44px; padding: 0 12px; margin-left: 2px; }
+
+  .search { flex: 1; min-width: 0; width: auto; height: 40px; }
+  .search:focus-within { width: auto; }
+  .search input { font-size: 16px; }
+  .search-count { font-size: 13px; }
+  .search-cancel { flex: none; padding: 0 10px; }
+
+  .chrome > .task { margin: 0 8px 6px; max-width: none; padding: 6px 6px 6px 12px; }
+  .chrome > .task .task-label { flex: 1; }
+  .chrome > .task .task-bar { width: 80px; }
+  .task-cancel { min-height: 36px; font-size: 14px; }
+
+  .bottom-bar {
+    display: grid;
+    grid-auto-columns: 1fr;
+    grid-auto-flow: column;
+    padding: 4px max(4px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
+    background: var(--chrome);
+    -webkit-backdrop-filter: saturate(1.8) blur(20px);
+    backdrop-filter: saturate(1.8) blur(20px);
+    border-top: 1px solid var(--hairline);
+  }
+  .bottom-bar button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 52px;
+    padding: 4px 2px;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.1;
+  }
+  .bottom-bar button:active:not(:disabled) { background: var(--control-hover); }
+  .bottom-bar button:disabled { opacity: 0.35; }
+  .bottom-bar button.is-danger:not(:disabled) { color: var(--danger); }
+
+  .markup-bar.is-compact {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    height: auto;
+    padding: 6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    border-top: 1px solid var(--hairline);
+    border-bottom: 0;
+    animation: none;
+  }
+  /* All tools stay visible: they share the width (40 px wide on a 375 px phone) instead of scrolling out of sight. */
+  .markup-bar.is-compact { position: relative; }
+  .markup-bar.is-compact .markup-tools { display: flex; }
+  .markup-bar.is-compact .signature-picker { display: contents; }
+  .markup-bar.is-compact .markup-tools .tool { flex: 1 1 0; min-width: 0; }
+  .markup-bar.is-compact .tool { width: 100%; max-width: 52px; height: 44px; margin: 0 auto; }
+  .markup-bar.is-compact .markup-style { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+  .markup-bar.is-compact .swatches { flex: 1; justify-content: space-between; max-width: 300px; }
+  .markup-bar.is-compact .swatch { width: 30px; height: 30px; }
+  .markup-bar.is-compact .widths { display: none; }
+  .markup-bar.is-compact .size-select select { font-size: 16px; min-height: 36px; }
+  .markup-bar.is-compact .size-select span { display: none; }
+  .markup-done { margin-left: auto; }
+  .markup-bar.is-compact .signature-menu { top: auto; bottom: calc(100% + 8px); left: 8px; }
+
+  .pages-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    background: var(--sidebar);
+    animation: fade-in 0.15s ease-out;
+  }
+  .pages-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 0 16px; font-size: 15px; }
+  .sidebar-list.is-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    align-content: start;
+    gap: 8px 4px;
+    padding: 8px 8px calc(24px + env(safe-area-inset-bottom));
+  }
+  .sidebar-list.is-grid .thumb { padding: 8px 0; justify-content: end; }
+  .sidebar-list.is-grid .thumb-number { font-size: 13px; padding: 2px 9px; }
+  .sidebar-list.is-grid .thumb.gap-before::before { top: 8px; bottom: 30px; left: -3px; right: auto; width: 3px; height: auto; }
+  .sidebar-list.is-grid .thumb.gap-after::after { top: 8px; bottom: 30px; right: -3px; left: auto; width: 3px; height: auto; }
+
+  .toasts { left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); max-width: none; }
+  .toast { font-size: 15px; }
+
+  .empty { padding: 24px max(20px, env(safe-area-inset-right)) calc(56px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); }
+  .empty h1 { font-size: 22px; }
+  .empty p { font-size: 16px; }
+  .empty-actions { flex-direction: column; align-self: stretch; max-width: 360px; margin: 0 auto; width: 100%; }
+  .empty-actions .button { height: 48px; justify-content: center; font-size: 16px; }
+  .restore { flex-wrap: wrap; max-width: 360px; width: 100%; margin-top: 28px; }
+  .restore > div { flex-basis: 100%; margin: 0 0 4px; }
+  .restore .button { flex: 1; justify-content: center; }
+  .empty-footer { bottom: max(12px, env(safe-area-inset-bottom)); }
+  .empty-footer button { min-height: 44px; font-size: 14px; }
+
+  .dialog { width: calc(100vw - 16px); padding: 18px 16px max(16px, env(safe-area-inset-bottom)); }
+  .about-close { width: 44px; height: 44px; place-items: center; top: 8px; right: 8px; }
+  .signature-pad { height: 180px; }
+  .dialog-actions { flex-wrap: wrap; }
+  .dialog-actions .button { min-height: 44px; }
+}

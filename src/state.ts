@@ -26,6 +26,7 @@ export type Action =
   | { type: 'redo' }
   | { type: 'select'; id: string; mode: 'single' | 'toggle' | 'range' }
   | { type: 'selectAll' }
+  | { type: 'selectNone' }
   | { type: 'step'; delta: number; extend: boolean }
   | { type: 'scrolledTo'; id: string }
   | { type: 'title'; title: string }
@@ -112,6 +113,8 @@ export function reducer(state: State, action: Action): State {
     }
     case 'selectAll':
       return { ...state, selection: pages.map((p) => p.id) }
+    case 'selectNone':
+      return { ...state, selection: [], anchor: null }
     case 'step': {
       if (pages.length === 0) return state
       const from = pages.findIndex((p) => p.id === (state.current ?? state.anchor))
