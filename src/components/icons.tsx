@@ -17,6 +17,7 @@ const paths = {
   file: 'M6.5 3.5h7l4 4v13h-11zM13.5 3.5v4h4M12 11v6M9 14h6',
   close: 'M6 6l12 12M18 6 6 18',
   chevron: 'M8 10l4 4 4-4',
+  search: 'M10.5 17.5a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM15.5 15.5l5 5',
 } as const
 
 export type IconName = keyof typeof paths

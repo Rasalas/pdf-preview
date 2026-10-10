@@ -3,11 +3,12 @@ import { EmptyState } from './components/EmptyState'
 import { Icon, type IconName } from './components/icons'
 import { Menu, type MenuItem } from './components/Menu'
 import { PAGES_MIME, Sidebar } from './components/Sidebar'
-import { Viewer, type Zoom } from './components/Viewer'
+import { Viewer, type ActiveHit, type Zoom } from './components/Viewer'
 import { rotatedSize } from './model/pages'
 import type { Page } from './model/types'
 import { buildPdf } from './pdf/export'
 import { A4, ACCEPT, ImportError, blankSource, importFile } from './pdf/import'
+import { countMatches, normalizeQuery, pageStrings } from './pdf/text'
 import { clearSession, loadSession, saveSession, type Session } from './persist'
 import { initialState, pagesOf, reducer } from './state'
 
@@ -47,6 +48,12 @@ export default function App() {
   // Saving starts only once the user has decided about a stored session, so it is never overwritten by accident.
   const [persisting, setPersisting] = useState(false)
 
+  const [query, setQuery] = useState('')
+  const [hits, setHits] = useState<{ query: string; pages: Map<string, number>; done: boolean }>({ query: '', pages: new Map(), done: true })
+  const [activeHit, setActiveHit] = useState<ActiveHit | null>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
+  const q = normalizeQuery(query)
+
   const toast = useCallback((text: string) => {
     const id = Date.now() + Math.random()
     setToasts((t) => [...t, { id, text }])
@@ -72,6 +79,62 @@ export default function App() {
   useEffect(() => {
     document.title = pages.length ? `${state.title || 'Unbenannt'} – Vorschau` : 'Vorschau'
   }, [pages.length, state.title])
+
+  useEffect(() => {
+    setActiveHit(null)
+    if (!q) {
+      setHits({ query: '', pages: new Map(), done: true })
+      return
+    }
+    let live = true
+    const t = setTimeout(async () => {
+      const found = new Map<string, number>()
+      for (const [i, page] of pages.entries()) {
+        let n = 0
+        try {
+          n = countMatches(await pageStrings(state.sources[page.sourceId], page.index), q)
+        } catch (e) {
+          console.error(e)
+        }
+        if (!live) return
+        if (n) found.set(page.id, n)
+        if (i % 25 === 24) setHits({ query: q, pages: new Map(found), done: false })
+      }
+      setHits({ query: q, pages: found, done: true })
+    }, 150)
+    return () => {
+      live = false
+      clearTimeout(t)
+    }
+  }, [q, pages, state.sources])
+
+  const hitOrder = useMemo(
+    () => pages.flatMap((p) => Array.from({ length: hits.pages.get(p.id) ?? 0 }, (_, n) => ({ pageId: p.id, n }))),
+    [pages, hits],
+  )
+  const activeIndex = activeHit ? hitOrder.findIndex((h) => h.pageId === activeHit.pageId && h.n === activeHit.n) : -1
+
+  const jump = (dir: 1 | -1) => {
+    if (hitOrder.length === 0) return
+    let i = activeIndex
+    if (i < 0) {
+      // Start from the page being read rather than the top of the document.
+      const from = Math.max(0, pages.findIndex((p) => p.id === state.current))
+      const pos = new Map(pages.map((p, k) => [p.id, k]))
+      i = hitOrder.findIndex((h) => pos.get(h.pageId)! >= from)
+      if (i < 0) i = 0
+      if (dir < 0) i = (i - 1 + hitOrder.length) % hitOrder.length
+    } else {
+      i = (i + dir + hitOrder.length) % hitOrder.length
+    }
+    setActiveHit({ ...hitOrder[i], nonce: Date.now() })
+  }
+
+  // Reveal the first hit as soon as one is known, like a browser's find bar.
+  useEffect(() => {
+    if (!activeHit && hits.query === q && hitOrder.length) jump(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hitOrder])
 
   const lastSelectedIndex = () => {
     const last = pages.findLastIndex((p) => selection.has(p.id))
@@ -234,6 +297,8 @@ export default function App() {
         e.preventDefault()
         fn()
       }
+      if (mod && key === 'f') return run(() => searchInput.current?.select())
+      if (mod && key === 'g') return run(() => jump(e.shiftKey ? -1 : 1))
       if (mod && key === 'z') return run(() => dispatch({ type: e.shiftKey ? 'redo' : 'undo' }))
       if (mod && key === 'y') return run(() => dispatch({ type: 'redo' }))
       if (mod && key === 'o') return run(() => openFiles())
@@ -377,6 +442,35 @@ export default function App() {
           <ToolButton icon="trash" label="Ausgewählte Seiten löschen (⌫)" disabled={!has} onClick={() => dispatch({ type: 'remove' })} />
           <ToolButton icon="plus" label={`Dateien einfügen (${MOD}O)`} onClick={() => openFiles()} />
         </div>
+        {empty ? null : (
+          <div className={`search${q ? ' is-active' : ''}`}>
+            <Icon name="search" width={14} height={14} />
+            <input
+              ref={searchInput}
+              type="search"
+              placeholder="Suchen"
+              aria-label={`Im Dokument suchen (${MOD}F)`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  jump(e.shiftKey ? -1 : 1)
+                } else if (e.key === 'Escape') {
+                  setQuery('')
+                  e.currentTarget.blur()
+                }
+              }}
+            />
+            {q ? (
+              <span className="search-count" aria-live="polite">
+                {hitOrder.length === 0
+                  ? hits.done && hits.query === q ? 'Keine Treffer' : '…'
+                  : `${activeIndex + 1 || '–'} / ${hitOrder.length}${hits.done ? '' : '+'}`}
+              </span>
+            ) : null}
+          </div>
+        )}
         <button className="button is-primary export-button" disabled={empty} onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect()
           setMenu({ x: r.right - 250, y: r.bottom + 6, kind: 'document' })
@@ -405,6 +499,7 @@ export default function App() {
                   onDropFiles={importFiles}
                   onContextMenu={onThumbContextMenu}
                   onKeyDown={onSidebarKey}
+                  hits={q ? hits.pages : null}
                 />
                 <div className="sidebar-resize" onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Seitenleistenbreite" />
               </aside>
@@ -414,10 +509,11 @@ export default function App() {
               sources={state.sources}
               zoom={zoom}
               current={state.current}
-              selection={selection}
               scrollRequest={scrollRequest}
               onScrolledTo={onScrolledTo}
               onScale={setScale}
+              query={hits.query === q ? q : ''}
+              activeHit={activeHit}
             />
           </>
         )}

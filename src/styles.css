@@ -56,7 +56,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+.app { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); height: 100%; }
 
 /* Toolbar */
 .toolbar {
@@ -186,7 +186,7 @@ button { font: inherit; color: inherit; }
 .thumb.gap-before::before { top: -1.5px; }
 .thumb.gap-after::after { bottom: -1.5px; }
 
-.viewer { flex: 1; overflow: auto; outline: none; background: var(--canvas); }
+.viewer { flex: 1; min-width: 0; overflow: auto; outline: none; background: var(--canvas); }
 .viewer-pages { display: flex; flex-direction: column; align-items: center; min-width: min-content; }
 .viewer-page { position: relative; flex: none; background: #fff; box-shadow: var(--page-shadow); }
 .viewer-page canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -198,7 +198,6 @@ button { font: inherit; color: inherit; }
   animation: shimmer 1.4s linear infinite;
 }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -50% 0; } }
-.viewer-page.is-selected { outline: 3px solid var(--accent-soft); outline-offset: 4px; }
 
 /* Empty state */
 .empty {
@@ -330,3 +329,86 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Search */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 190px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 7px;
+  background: var(--control);
+  box-shadow: inset 0 0 0 0.5px var(--hairline);
+  color: var(--text-3);
+  transition: width 0.2s;
+}
+.search:focus-within { width: 240px; background: var(--surface); box-shadow: 0 0 0 2px var(--accent); }
+.search input { flex: 1; min-width: 0; border: 0; background: none; font: inherit; color: var(--text); outline: none; }
+.search input::-webkit-search-cancel-button { display: none; }
+.search-count { flex: none; color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+.thumb-hits {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #f5b400;
+  color: #3a2a00;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+}
+.thumb.is-dimmed .thumb-frame { opacity: 0.45; }
+
+/* Text layer, adapted from pdf.js's pdf_viewer.css */
+.text-box { position: absolute; inset: 0; }
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  -webkit-text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+.textLayer > :not(.markedContent), .textLayer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  z-index: 1;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer .markedContent { display: contents; }
+.textLayer ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); color: transparent; }
+.textLayer br::selection { background: transparent; }
+.textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; }
+.textLayer.selecting .endOfContent { top: 0; }
+.textLayer mark.hit {
+  margin: -1px;
+  padding: 1px;
+  border-radius: 3px;
+  color: transparent;
+  background: rgb(255 196 0 / 0.42);
+}
+.textLayer mark.hit.is-active { background: rgb(255 140 0 / 0.6); box-shadow: 0 0 0 2px rgb(255 140 0 / 0.8); }
