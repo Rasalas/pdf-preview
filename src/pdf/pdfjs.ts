@@ -124,3 +124,34 @@ export function thumbnailUrl(source: Source, index: number, rotation: Rotation, 
   }
   return url
 }
+
+/** Renders selectable text over a page. Returns the text spans in text-item order. */
+export async function renderTextLayer(
+  container: HTMLDivElement,
+  source: Source,
+  index: number,
+  rotation: Rotation,
+  cssWidth: number,
+  signal: AbortSignal,
+): Promise<HTMLElement[]> {
+  const page = await (await openPdf(source)).getPage(index + 1)
+  if (signal.aborted) return []
+  const scale = cssWidth / rotatedSize(source.pages[index], rotation).width
+  const viewport = page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 })
+  const target = document.createElement('div')
+  target.className = 'textLayer'
+  target.style.setProperty('--total-scale-factor', String(scale))
+  const layer = new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: target, viewport })
+  const abort = () => layer.cancel()
+  signal.addEventListener('abort', abort)
+  try {
+    await layer.render()
+  } catch (e) {
+    if (signal.aborted) return []
+    throw e
+  } finally {
+    signal.removeEventListener('abort', abort)
+  }
+  container.replaceChildren(target)
+  return layer.textDivs
+}

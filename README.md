@@ -12,6 +12,8 @@ Eine Nachbildung der macOS-App Vorschau als statische Website. PDFs und Bilder w
 - Seiten drehen, duplizieren, löschen, leere Seiten einfügen
 - Widerrufen und Wiederholen für alle Änderungen, ein Import zählt als ein Schritt
 - Als PDF sichern, wahlweise nur die Auswahl; Drucken
+- Text in PDFs auswählen und kopieren
+- Im ganzen Dokument suchen; Treffer werden markiert und in der Seitenleiste pro Seite gezählt
 - PDF-Seiten werden unverändert übernommen, Text bleibt durchsuchbar und Vektoren bleiben scharf
 - Das Arbeitsdokument wird lokal gespeichert (IndexedDB) und lässt sich nach einem Neuladen wiederherstellen
 
@@ -22,6 +24,8 @@ Eine Nachbildung der macOS-App Vorschau als statische Website. PDFs und Bilder w
 | ⌘O | Dateien einfügen |
 | ⌘S | Als PDF sichern |
 | ⌘P | Drucken |
+| ⌘F | Suchen |
+| ⌘G / ⇧⌘G, ↩ / ⇧↩ | Nächster / vorheriger Treffer |
 | ⌘Z / ⇧⌘Z | Widerrufen / Wiederholen |
 | ⌘R / ⌘L | Nach rechts / links drehen |
 | ⌘D | Duplizieren |
@@ -46,4 +50,5 @@ npm run build   # statische Seite in dist/
 ## Bekannte Grenzen
 
 - Verschlüsselte PDFs werden beim Import abgelehnt (pdf-lib kann sie nicht schreiben).
-- Noch nicht umgesetzt: Textsuche und Textauswahl, Anmerkungen, Unterschrift, Formulare.
+- Die Suche findet keine Begriffe, die in der PDF auf zwei Textstücke verteilt sind (etwa über einen Zeilenumbruch hinweg). Bilder und gescannte Seiten ohne Textebene sind nicht durchsuchbar.
+- Noch nicht umgesetzt: Anmerkungen, Unterschrift, Formulare.

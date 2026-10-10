@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { rotatedSize } from '../model/pages'
 import type { Page, Sources } from '../model/types'
-import { renderPage } from '../pdf/pdfjs'
+import { renderPage, renderTextLayer } from '../pdf/pdfjs'
+import { matchRanges } from '../pdf/text'
 
 export type Zoom = 'fit' | number
+
+/** The search hit to reveal; `nonce` changes on every jump so the same hit can be revealed again. */
+export interface ActiveHit {
+  pageId: string
+  n: number
+  nonce: number
+}
 
 const PX_PER_PT = 96 / 72
 const GAP = 16
@@ -14,14 +22,15 @@ interface Props {
   sources: Sources
   zoom: Zoom
   current: string | null
-  selection: ReadonlySet<string>
   /** Incremented to scroll `current` into view. */
   scrollRequest: number
   onScrolledTo: (id: string) => void
   onScale: (scale: number) => void
+  query: string
+  activeHit: ActiveHit | null
 }
 
-export function Viewer({ pages, sources, zoom, current, selection, scrollRequest, onScrolledTo, onScale }: Props) {
+export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const elements = useRef(new Map<string, HTMLDivElement>())
   const [width, setWidth] = useState(0)
@@ -57,6 +66,17 @@ export function Viewer({ pages, sources, zoom, current, selection, scrollRequest
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollRequest])
 
+  // Bring the page into view; the page itself centres the hit once its text layer exists.
+  useLayoutEffect(() => {
+    const el = activeHit && elements.current.get(activeHit.pageId)
+    if (!el) return
+    const box = scroller.current!
+    if (el.offsetTop + el.offsetHeight < box.scrollTop || el.offsetTop > box.scrollTop + box.clientHeight) {
+      box.scrollTop = el.offsetTop - PADDING
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeHit?.nonce])
+
   const frame = useRef(0)
   const onScroll = useCallback(() => {
     cancelAnimationFrame(frame.current)
@@ -91,8 +111,9 @@ export function Viewer({ pages, sources, zoom, current, selection, scrollRequest
               number={i + 1}
               width={Math.round(size.width * scale * PX_PER_PT)}
               height={Math.round(size.height * scale * PX_PER_PT)}
-              selected={selection.has(page.id) && selection.size > 1}
               root={scroller}
+              query={query}
+              activeHit={activeHit?.pageId === page.id ? activeHit : null}
               ref={(el) => {
                 if (el) elements.current.set(page.id, el)
                 else elements.current.delete(page.id)
@@ -111,16 +132,20 @@ interface PageProps {
   number: number
   width: number
   height: number
-  selected: boolean
   root: React.RefObject<HTMLDivElement | null>
+  query: string
+  activeHit: ActiveHit | null
   ref: (el: HTMLDivElement | null) => void
 }
 
-function ViewerPage({ page, sources, number, width, height, selected, root, ref }: PageProps) {
+function ViewerPage({ page, sources, number, width, height, root, query, activeHit, ref }: PageProps) {
   const box = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [near, setNear] = useState(false)
   const [rendered, setRendered] = useState(false)
+  const textBox = useRef<HTMLDivElement>(null)
+  const [spans, setSpans] = useState<HTMLElement[]>([])
+  const revealed = useRef(0)
 
   useEffect(() => {
     const io = new IntersectionObserver(([e]) => setNear(e.isIntersecting), {
@@ -137,7 +162,9 @@ function ViewerPage({ page, sources, number, width, height, selected, root, ref 
     if (!near) {
       // Release the bitmap; full-size canvases for hundreds of pages would exhaust memory.
       c.width = c.height = 0
+      textBox.current!.replaceChildren()
       setRendered(false)
+      setSpans([])
       return
     }
     const ctrl = new AbortController()
@@ -146,6 +173,11 @@ function ViewerPage({ page, sources, number, width, height, selected, root, ref 
       renderPage(c, source, page.index, page.rotation, width, ctrl.signal)
         .then(() => !ctrl.signal.aborted && setRendered(true))
         .catch((e) => console.error('Seite konnte nicht gezeichnet werden', e))
+      if (source.kind === 'pdf') {
+        renderTextLayer(textBox.current!, source, page.index, page.rotation, width, ctrl.signal)
+          .then((s) => !ctrl.signal.aborted && setSpans(s))
+          .catch((e) => console.error('Textebene fehlgeschlagen', e))
+      }
     }, rendered ? 120 : 0)
     return () => {
       clearTimeout(t)
@@ -154,17 +186,47 @@ function ViewerPage({ page, sources, number, width, height, selected, root, ref 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [near, source, page.index, page.rotation, width])
 
+  useEffect(() => {
+    let n = 0
+    let active: HTMLElement | null = null
+    for (const span of spans) {
+      const text = span.textContent ?? ''
+      const ranges = matchRanges(text, query)
+      if (ranges.length === 0 && !span.childElementCount) continue
+      span.replaceChildren()
+      let at = 0
+      for (const [start, end] of ranges) {
+        const mark = document.createElement('mark')
+        mark.className = 'hit'
+        mark.textContent = text.slice(start, end)
+        if (activeHit?.n === n) {
+          mark.classList.add('is-active')
+          active = mark
+        }
+        n++
+        span.append(text.slice(at, start), mark)
+        at = end
+      }
+      span.append(text.slice(at))
+    }
+    if (active && activeHit && revealed.current !== activeHit.nonce) {
+      revealed.current = activeHit.nonce
+      active.scrollIntoView({ block: 'center', inline: 'nearest' })
+    }
+  }, [spans, query, activeHit])
+
   return (
     <div
       ref={(el) => {
         box.current = el
         ref(el)
       }}
-      className={`viewer-page${selected ? ' is-selected' : ''}${rendered ? '' : ' is-loading'}`}
+      className={`viewer-page${rendered ? '' : ' is-loading'}`}
       style={{ width, height }}
       aria-label={`Seite ${number}`}
     >
       <canvas ref={canvas} />
+      <div ref={textBox} className="text-box" />
     </div>
   )
 }

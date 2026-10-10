@@ -16,9 +16,11 @@ interface Props {
   onDropFiles: (files: File[], gap: number) => void
   onContextMenu: (e: MouseEvent, id: string) => void
   onKeyDown: (e: KeyboardEvent) => void
+  /** Search hits per page id, or null when not searching. */
+  hits: ReadonlyMap<string, number> | null
 }
 
-export function Sidebar({ pages, sources, selection, current, width, onSelect, onMove, onDropFiles, onContextMenu, onKeyDown }: Props) {
+export function Sidebar({ pages, sources, selection, current, width, onSelect, onMove, onDropFiles, onContextMenu, onKeyDown, hits }: Props) {
   const list = useRef<HTMLDivElement>(null)
   const [gap, setGap] = useState<number | null>(null)
   const thumbWidth = width - 56
@@ -82,6 +84,7 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
           width={thumbWidth}
           selected={selection.has(page.id)}
           current={page.id === current}
+          hits={hits?.get(page.id) ?? (hits ? 0 : null)}
           gapBefore={gap === i}
           gapAfter={gap === pages.length && i === pages.length - 1}
           onSelect={onSelect}
@@ -108,6 +111,7 @@ interface ThumbProps {
   width: number
   selected: boolean
   current: boolean
+  hits: number | null
   gapBefore: boolean
   gapAfter: boolean
   onSelect: Props['onSelect']
@@ -116,7 +120,7 @@ interface ThumbProps {
   root: React.RefObject<HTMLDivElement | null>
 }
 
-function Thumb({ page, sources, number, width, selected, current, gapBefore, gapAfter, onSelect, onContextMenu, onDragEnd, root }: ThumbProps) {
+function Thumb({ page, sources, number, width, selected, current, hits, gapBefore, gapAfter, onSelect, onContextMenu, onDragEnd, root }: ThumbProps) {
   const el = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
@@ -151,7 +155,7 @@ function Thumb({ page, sources, number, width, selected, current, gapBefore, gap
     <div
       ref={el}
       data-id={page.id}
-      className={`thumb${selected ? ' is-selected' : ''}${current ? ' is-current' : ''}${gapBefore ? ' gap-before' : ''}${gapAfter ? ' gap-after' : ''}`}
+      className={`thumb${selected ? ' is-selected' : ''}${current ? ' is-current' : ''}${hits === 0 ? ' is-dimmed' : ''}${gapBefore ? ' gap-before' : ''}${gapAfter ? ' gap-after' : ''}`}
       role="option"
       aria-selected={selected}
       aria-label={`Seite ${number}`}
@@ -175,6 +179,7 @@ function Thumb({ page, sources, number, width, selected, current, gapBefore, gap
     >
       <div className="thumb-frame" style={{ width: boxW, height: boxH }}>
         {url ? <img src={url} alt="" draggable={false} /> : null}
+        {hits ? <span className="thumb-hits" aria-label={`${hits} Treffer`}>{hits}</span> : null}
       </div>
       <span className="thumb-number">{number}</span>
     </div>
