@@ -15,8 +15,8 @@ const labels = (s: State) => pagesOf(s).map((p) => `${p.sourceId}${p.index + 1}`
 
 describe('reducer', () => {
   it('imports a second file between pages as one undo step', () => {
-    let s = run({ type: 'import', sources: [source('a', 2)], at: 0 })
-    s = reducer(s, { type: 'import', sources: [source('b', 2)], at: 1 })
+    let s = run({ type: 'import', sources: [source('a', 2)], before: null })
+    s = reducer(s, { type: 'import', sources: [source('b', 2)], before: pagesOf(s)[1].id })
     expect(labels(s)).toBe('a1 b1 b2 a2')
     expect(s.selection).toHaveLength(2)
     expect(s.title).toBe('a')
@@ -25,7 +25,7 @@ describe('reducer', () => {
   })
 
   it('selects restored pages after undoing a delete', () => {
-    let s = run({ type: 'import', sources: [source('a', 3)], at: 0 })
+    let s = run({ type: 'import', sources: [source('a', 3)], before: null })
     const [, p2] = pagesOf(s)
     s = reducer(s, { type: 'select', id: p2.id, mode: 'single' })
     s = reducer(reducer(s, { type: 'remove' }), { type: 'undo' })
@@ -33,7 +33,7 @@ describe('reducer', () => {
   })
 
   it('selects a range and moves it with the keyboard', () => {
-    let s = run({ type: 'import', sources: [source('a', 4)], at: 0 })
+    let s = run({ type: 'import', sources: [source('a', 4)], before: null })
     const [, p2, p3] = pagesOf(s)
     s = reducer(s, { type: 'select', id: p2.id, mode: 'single' })
     s = reducer(s, { type: 'select', id: p3.id, mode: 'range' })
@@ -45,7 +45,7 @@ describe('reducer', () => {
   })
 
   it('selects the following page after deleting', () => {
-    let s = run({ type: 'import', sources: [source('a', 3)], at: 0 })
+    let s = run({ type: 'import', sources: [source('a', 3)], before: null })
     const [p1, p2, p3] = pagesOf(s)
     s = reducer(s, { type: 'select', id: p2.id, mode: 'single' })
     s = reducer(s, { type: 'remove' })
@@ -55,7 +55,7 @@ describe('reducer', () => {
   })
 
   it('keeps a multi-selection while scrolling', () => {
-    let s = run({ type: 'import', sources: [source('a', 3)], at: 0 })
+    let s = run({ type: 'import', sources: [source('a', 3)], before: null })
     const [p1, , p3] = pagesOf(s)
     s = reducer(s, { type: 'select', id: p1.id, mode: 'single' })
     s = reducer(s, { type: 'scrolledTo', id: p3.id })
@@ -66,9 +66,28 @@ describe('reducer', () => {
   })
 })
 
+describe('import anchoring', () => {
+  it('inserts before an anchor page even after other imports shifted indices', () => {
+    let s = run({ type: 'import', sources: [source('a', 2)], before: null })
+    const anchor = pagesOf(s)[1].id
+    // Another import lands at the front first, as a queued import would.
+    s = reducer(s, { type: 'import', sources: [source('x', 1)], before: pagesOf(s)[0].id })
+    s = reducer(s, { type: 'import', sources: [source('b', 1)], before: anchor })
+    expect(labels(s)).toBe('x1 a1 b1 a2')
+  })
+
+  it('appends when the anchor page was deleted meanwhile', () => {
+    let s = run({ type: 'import', sources: [source('a', 2)], before: null })
+    const anchor = pagesOf(s)[0].id
+    s = reducer(reducer(s, { type: 'select', id: anchor, mode: 'single' }), { type: 'remove' })
+    s = reducer(s, { type: 'import', sources: [source('b', 1)], before: anchor })
+    expect(labels(s)).toBe('a2 b1')
+  })
+})
+
 describe('annotations', () => {
   it('adds, edits and removes annotations as undoable steps', () => {
-    let s = run({ type: 'import', sources: [source('a', 1)], at: 0 })
+    let s = run({ type: 'import', sources: [source('a', 1)], before: null })
     const [page] = pagesOf(s)
     const rect = { id: 'r', type: 'rect', color: '#f00', width: 2, x: 0, y: 0, w: 10, h: 10 } as const
     s = reducer(s, { type: 'annotate', pageId: page.id, annotation: rect, select: true })
@@ -83,7 +102,7 @@ describe('annotations', () => {
   })
 
   it('keeps annotations on duplicated pages', () => {
-    let s = run({ type: 'import', sources: [source('a', 1)], at: 0 })
+    let s = run({ type: 'import', sources: [source('a', 1)], before: null })
     const [page] = pagesOf(s)
     s = reducer(s, { type: 'annotate', pageId: page.id, annotation: { id: 't', type: 'text', color: '#000', size: 12, x: 0, y: 0, text: 'x' } })
     s = reducer(reducer(s, { type: 'select', id: page.id, mode: 'single' }), { type: 'duplicate' })

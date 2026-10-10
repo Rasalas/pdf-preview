@@ -166,26 +166,47 @@ export default function App() {
     return last < 0 ? pages.length : last + 1
   }
 
-  const importFiles = async (files: File[], at: number) => {
+  // Imports run one after another, so files dropped in quick succession keep their order.
+  const importQueue = useRef(Promise.resolve())
+  const queued = useRef(0)
+  const importFiles = (files: File[], at: number) => {
     if (files.length === 0) return
+    // Anchored to a page rather than an index, which an import still ahead in the queue would shift.
+    const before = pagesRef.current[at]?.id ?? null
+    queued.current += files.length
+    importQueue.current = importQueue.current.then(() => runImport(files, before)).catch(console.error)
+  }
+
+  const runImport = async (files: File[], before: string | null) => {
     let cancelled = false
     const cancel = () => (cancelled = true)
     const sources = []
+    let processed = 0
     for (const [i, file] of files.entries()) {
       if (cancelled) break
-      setTask({ label: `„${file.name}“ wird geladen`, progress: files.length > 1 ? i / files.length : null, cancel })
+      const more = queued.current - 1
+      setTask({
+        label: `„${file.name}“ wird geladen${more > 0 ? ` (noch ${more})` : ''}`,
+        progress: files.length > 1 ? i / files.length : null,
+        cancel,
+      })
       try {
         sources.push(await importFile(file))
       } catch (e) {
         console.error(e)
         toast(e instanceof ImportError ? e.message : `„${file.name}“ konnte nicht importiert werden.`)
+      } finally {
+        queued.current--
+        processed++
       }
     }
+    // Files skipped by cancelling no longer count as waiting.
+    queued.current -= files.length - processed
     setTask(null)
     if (cancelled) return
     setSession(null)
     setPersisting(true)
-    dispatch({ type: 'import', sources, at })
+    dispatch({ type: 'import', sources, before })
   }
 
   const openFiles = (at = lastSelectedIndex()) => {
@@ -198,7 +219,7 @@ export default function App() {
     const size = ref ? state.sources[ref.sourceId].pages[ref.index] : A4
     setSession(null)
     setPersisting(true)
-    dispatch({ type: 'import', sources: [blankSource(ref ? rotatedSize(size, ref.rotation) : A4)], at })
+    dispatch({ type: 'import', sources: [blankSource(ref ? rotatedSize(size, ref.rotation) : A4)], before: pages[at]?.id ?? null })
   }
 
   const exportPdf = async (list: Page[], suffix = '') => {

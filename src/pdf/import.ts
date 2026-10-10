@@ -8,12 +8,27 @@ const PT_PER_PX = 72 / 96
 // Images become pages at 96 dpi, shrunk so the long edge is at most A4's.
 const MAX_IMAGE_EDGE = 842
 
-export const ACCEPT = 'application/pdf,.pdf,image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif,image/svg+xml'
+export const ACCEPT = 'application/pdf,.pdf,image/*,.heic,.heif'
+
+// Some systems hand over files without a MIME type, so the extension counts too.
+const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  avif: 'image/avif',
+  heic: 'image/heic',
+  heif: 'image/heif',
+}
 
 export async function importFile(file: File): Promise<Source> {
-  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
-  if (isPdf) return importPdf(file)
-  if (file.type.startsWith('image/')) return importImage(file)
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+  if (file.type === 'application/pdf' || ext === 'pdf') return importPdf(file)
+  const type = file.type.startsWith('image/') ? file.type : IMAGE_TYPES[ext]
+  if (type) return importImage(file, type)
+  if (file.size === 0 && !file.type) throw new ImportError(`„${file.name}“ ist ein Ordner oder leer. Bitte die Dateien darin auswählen.`)
   throw new ImportError(`„${file.name}“ ist weder ein PDF noch ein Bild.`)
 }
 
@@ -45,19 +60,23 @@ async function importPdf(file: File): Promise<Source> {
   return { id, name: file.name, kind: 'pdf', mime: 'application/pdf', bytes, pages }
 }
 
-async function importImage(file: File): Promise<Source> {
+async function importImage(file: File, type: string): Promise<Source> {
   let bitmap: ImageBitmap
   try {
     bitmap = await createImageBitmap(file)
   } catch {
+    if (/hei[cf]/.test(type)) {
+      throw new ImportError(
+        `„${file.name}“ ist ein HEIC-Foto, das dieser Browser nicht öffnen kann. In Safari klappt es, sonst das Foto vorher als JPEG exportieren.`,
+      )
+    }
     throw new ImportError(`Das Bild „${file.name}“ kann dieser Browser nicht öffnen.`)
   }
   const { width, height } = bitmap
-  let mime = file.type as Source['mime']
-  let bytes: Uint8Array
-  if (mime === 'image/png' || mime === 'image/jpeg') {
-    bytes = new Uint8Array(await file.arrayBuffer())
-  } else {
+  let bytes = new Uint8Array(await file.arrayBuffer())
+  // Trust the content, not the name: a PNG called .jpg would otherwise fail at export.
+  let mime = sniffImage(bytes)
+  if (!mime) {
     // PDF only embeds PNG and JPEG directly; convert everything else once, losslessly.
     const canvas = document.createElement('canvas')
     canvas.width = width
@@ -77,6 +96,12 @@ async function importImage(file: File): Promise<Source> {
     bytes,
     pages: [{ width: width * scale, height: height * scale }],
   }
+}
+
+export function sniffImage(bytes: Uint8Array): 'image/png' | 'image/jpeg' | null {
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  return null
 }
 
 export function blankSource(size: PageSize): Source {

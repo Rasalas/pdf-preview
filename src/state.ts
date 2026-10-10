@@ -16,7 +16,8 @@ export interface State {
 }
 
 export type Action =
-  | { type: 'import'; sources: Source[]; at: number }
+  /** Inserts before the page `before`, or at the end if it is null or gone. */
+  | { type: 'import'; sources: Source[]; before: string | null }
   | { type: 'remove' }
   | { type: 'move'; gap: number }
   | { type: 'nudge'; delta: -1 | 1 }
@@ -62,7 +63,9 @@ export function reducer(state: State, action: Action): State {
       if (added.length === 0) return state
       const title = state.title || (pages.length === 0 ? baseName(action.sources[0].name) : '')
       const next = { ...state, sources, title }
-      return withSelection(edit(next, insertPages(pages, added, action.at)), added.map((p) => p.id))
+      const anchor = action.before ? pages.findIndex((p) => p.id === action.before) : -1
+      const at = anchor < 0 ? pages.length : anchor
+      return withSelection(edit(next, insertPages(pages, added, at)), added.map((p) => p.id))
     }
     case 'remove': {
       if (selected.size === 0) return state
