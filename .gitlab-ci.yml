@@ -1,0 +1,22 @@
+# Publishes the app on GitLab Pages, e.g. on git.nrw where this repository is mirrored from GitHub.
+# The source of truth is https://github.com/Rasalas/pdf-preview; changes belong there.
+pages:
+  image: node:22
+  script:
+    - npm ci
+    - npm run build
+    - rm -rf public && mv dist public
+  variables:
+    VITE_HOST_NAME: git.nrw
+    VITE_PRIVACY_URL: https://git.nrw/de/legal#privacy
+    VITE_IMPRINT_URL: https://git.nrw/de/legal#imprint
+  cache:
+    key:
+      files: [package-lock.json]
+    paths: [.npm/]
+  before_script:
+    - npm config set cache .npm
+  artifacts:
+    paths: [public]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

@@ -6,9 +6,10 @@ interface Props {
   onBlank: () => void
   onRestore: () => void
   onDiscard: () => void
+  onAbout: () => void
 }
 
-export function EmptyState({ session, onOpen, onBlank, onRestore, onDiscard }: Props) {
+export function EmptyState({ session, onOpen, onBlank, onRestore, onDiscard, onAbout }: Props) {
   return (
     <div className="empty">
       <div className="empty-sheets" aria-hidden="true">
@@ -35,6 +36,9 @@ export function EmptyState({ session, onOpen, onBlank, onRestore, onDiscard }: P
           <button className="button is-quiet" onClick={onDiscard}>Verwerfen</button>
         </div>
       ) : null}
+      <footer className="empty-footer">
+        <button onClick={onAbout}>Über und Datenschutz</button>
+      </footer>
     </div>
   )
 }
