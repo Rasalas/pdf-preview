@@ -17,6 +17,7 @@ import type { Annotation } from './model/types'
 
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4]
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
+const isSafari = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent)
 const MOD = isMac ? '⌘' : 'Strg+'
 
 interface Task {
@@ -219,11 +220,18 @@ export default function App() {
 
   const print = async () => {
     if (pages.length === 0) return
+    // Safari prints PDFs in hidden frames unreliably; it gets the PDF in a new tab instead.
+    // The tab must be opened before any await, or the popup blocker steps in.
+    const tab = isSafari ? open('', '_blank') : null
     setTask({ label: 'Druck wird vorbereitet', progress: null })
     try {
       const { buildPdf } = await import('./pdf/export')
       const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt')
       const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
+      if (tab) {
+        tab.location.href = url
+        return
+      }
       const frame = document.createElement('iframe')
       frame.className = 'print-frame'
       frame.src = url
@@ -242,6 +250,7 @@ export default function App() {
       document.body.append(frame)
     } catch (e) {
       console.error(e)
+      tab?.close()
       toast('Der Druck konnte nicht vorbereitet werden.')
     } finally {
       setTask(null)

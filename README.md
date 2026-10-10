@@ -50,6 +50,14 @@ npm run build   # statische Seite in dist/
 
 `dist/` kann auf jedem statischen Hosting liegen, auch in einem Unterverzeichnis.
 
+## Browser
+
+Aktuelle Versionen von Chrome, Edge, Firefox und Safari (macOS und iPadOS). Getestet mit Chromium und WebKit, Letzteres auch mit nachgestellt fehlenden neuen APIs (`Promise.withResolvers`, `Map#getOrInsertComputed`, `Math.sumPrecise`), wie sie in älteren Safari-Versionen fehlen. Dafür nutzt die App den Legacy-Build von pdf.js und ein eigenes Polyfill, auch im Worker.
+
+In Safari öffnet „Drucken“ das PDF in einem neuen Tab, weil Safari PDFs aus versteckten Frames unzuverlässig druckt.
+
+Die App sollte über HTTPS ausgeliefert werden; ohne sichere Verbindung fehlen einige Browserfunktionen (für die wichtigste gibt es einen Ersatz).
+
 ## Bekannte Grenzen
 
 - Verschlüsselte PDFs werden beim Import abgelehnt (pdf-lib kann sie nicht schreiben).
