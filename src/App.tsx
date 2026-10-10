@@ -13,6 +13,7 @@ import type { Page } from './model/types'
 import { A4, ACCEPT, ImportError, blankSource, importFile } from './pdf/import'
 import { countMatches, normalizeQuery, pageStrings } from './pdf/text'
 import { clearSession, loadSession, saveSession, type Session } from './persist'
+import { isDesktop } from './desktop'
 import { findAnnotation, initialState, pagesOf, reducer } from './state'
 import type { Annotation } from './model/types'
 
@@ -37,6 +38,8 @@ export default function App() {
   const pages = pagesOf(state)
   const selection = useMemo(() => new Set(state.selection), [state.selection])
   const selectedPages = pages.filter((p) => selection.has(p.id))
+  const pagesRef = useRef(pages)
+  pagesRef.current = pages
 
   const [zoom, setZoom] = useState<Zoom>('fit')
   const [scale, setScale] = useState(1)
@@ -209,7 +212,7 @@ export default function App() {
         if (cancelled) throw new DOMException('Abgebrochen', 'AbortError')
         setTask((t) => t && { ...t, progress: done / total })
       })
-      download(bytes, `${title}${suffix}.pdf`)
+      await download(bytes, `${title}${suffix}.pdf`)
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {
         console.error(e)
@@ -224,11 +227,16 @@ export default function App() {
     if (pages.length === 0) return
     // Safari prints PDFs in hidden frames unreliably; it gets the PDF in a new tab instead.
     // The tab must be opened before any await, or the popup blocker steps in.
-    const tab = isSafari ? open('', '_blank') : null
+    const tab = isSafari && !isDesktop ? open('', '_blank') : null
     setTask({ label: 'Druck wird vorbereitet', progress: null })
     try {
       const { buildPdf } = await import('./pdf/export')
       const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt')
+      if (isDesktop) {
+        const { openInSystemViewer } = await import('./desktop')
+        await openInSystemViewer(bytes, `${state.title || 'Unbenannt'}.pdf`)
+        return
+      }
       const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
       if (tab) {
         tab.location.href = url
@@ -469,6 +477,27 @@ export default function App() {
     }
   }, [])
 
+  // Desktop app: files from "Open with" or a double-click in the file manager.
+  const importRef = useRef(importFiles)
+  importRef.current = importFiles
+  useEffect(() => {
+    if (!isDesktop) return
+    let unlisten: (() => void) | undefined
+    let live = true
+    void import('./desktop').then(async (desktop) => {
+      const take = async () => {
+        const files = await desktop.takeOpenedFiles()
+        if (live && files.length) importRef.current(files, pagesRef.current.length)
+      }
+      unlisten = await desktop.onFilesOpened(take)
+      await take()
+    })
+    return () => {
+      live = false
+      unlisten?.()
+    }
+  }, [])
+
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault()
     const startX = e.clientX
@@ -701,7 +730,12 @@ function ToolButton({ icon, label, pressed, disabled, onClick }: { icon: IconNam
   )
 }
 
-function download(bytes: Uint8Array, name: string) {
+async function download(bytes: Uint8Array, name: string) {
+  if (isDesktop) {
+    const { saveWithDialog } = await import('./desktop')
+    await saveWithDialog(bytes, name)
+    return
+  }
   const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
   const a = document.createElement('a')
   a.href = url

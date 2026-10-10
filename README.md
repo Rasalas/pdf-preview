@@ -24,6 +24,12 @@ Eine Web-App nach dem Vorbild der macOS-App Vorschau. Dateien werden ausschließ
 | --- | --- | --- |
 | ![Zwei ausgewählte Seiten werden in der Seitenleiste verschoben](docs/media/reorder.png) | ![Suchtreffer im Dokument und in der Seitenleiste](docs/media/search.png) | ![Die App im dunklen Modus](docs/media/dark.png) |
 
+## Desktop-Apps
+
+Für macOS, Windows und Linux gibt es installierbare Apps unter [Releases](https://github.com/Rasalas/pdf-preview/releases/latest). Sie funktionieren offline, öffnen PDFs per Doppelklick oder „Öffnen mit“, sichern über den Systemdialog und drucken über den PDF-Viewer des Systems.
+
+Die Apps sind noch nicht signiert. Unter macOS beim ersten Start in *Systemeinstellungen → Datenschutz & Sicherheit* „Dennoch öffnen“ wählen, unter Windows bei SmartScreen „Weitere Informationen → Trotzdem ausführen“.
+
 ## Datenschutz
 
 Öffnen, Bearbeiten und Sichern passieren vollständig im Browser; Dateien werden nirgends hochgeladen. Das zuletzt bearbeitete Dokument und gezeichnete Unterschriften liegen nur lokal im Browser (IndexedDB bzw. `localStorage`) und lassen sich dort jederzeit verwerfen. Beim Aufruf der Seite verarbeitet allein der jeweilige Hoster technisch notwendige Daten; die App nennt ihn unter „Über und Datenschutz“.
@@ -71,13 +77,15 @@ npm run dev     # Entwicklungsserver
 npm test        # Tests
 npm run build   # statische Seite in dist/
 npm run media   # Screenshots und Demo-Video in docs/media neu erzeugen
+npm run tauri dev     # Desktop-App im Entwicklungsmodus (braucht Rust)
+npm run tauri build   # Desktop-App für das aktuelle System bauen
 ```
 
 `npm run media` baut die App, spielt mit erfundenen Beispieldokumenten einen festen Ablauf in Chromium durch und legt Screenshots, `demo.mp4` und `demo.gif` ab (Video nur mit installiertem `ffmpeg`; `-- --no-video` überspringt es). Dasselbe läuft per Knopfdruck auf GitHub unter *Actions → Bilder und Video → Run workflow* und öffnet einen Pull Request mit den neuen Bildern.
 
 ## Veröffentlichung
 
-Die Quelle ist dieses Repository auf GitHub. Jeder Push auf `main` veröffentlicht die App auf [GitHub Pages](https://rasalas.github.io/pdf-preview/).
+Die Quelle ist dieses Repository auf GitHub. Jeder Push auf `main` veröffentlicht die App auf [GitHub Pages](https://rasalas.github.io/pdf-preview/). Ein Tag wie `v0.1.0` baut die Desktop-Apps für alle drei Systeme und legt sie als Entwurf unter Releases ab.
 
 Auf [git.nrw](https://git.nrw) liegt ein Spiegel, der Änderungen von hier übernimmt und die App per GitLab Pages veröffentlicht (`.gitlab-ci.yml`). Einrichtung dort:
 

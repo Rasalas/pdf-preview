@@ -1,0 +1,22 @@
+[package]
+name = "pdf-preview"
+version = "0.1.0"
+description = "PDFs kombinieren, sortieren und markieren"
+authors = ["Torben Buck"]
+license = "MIT"
+repository = "https://github.com/Rasalas/pdf-preview"
+edition = "2024"
+rust-version = "1.90"
+
+[lib]
+name = "pdf_preview_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.1", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.1", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"

@@ -1,6 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { deployment, links, version } from '../config'
+import { isDesktop } from '../desktop'
 import { Icon } from './icons'
+
+// Desktop webviews do not open new windows; hand links to the system browser instead.
+const external = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  if (!isDesktop) return
+  e.preventDefault()
+  void import('../desktop').then((d) => d.openExternal(e.currentTarget.href))
+}
 
 export function AboutDialog({ onClose }: { onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
@@ -29,18 +37,18 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
       ) : null}
       {deployment.privacyUrl || deployment.imprintUrl ? (
         <p className="about-legal">
-          {deployment.privacyUrl ? <a href={deployment.privacyUrl} target="_blank" rel="noreferrer">Datenschutzerklärung</a> : null}
-          {deployment.imprintUrl ? <a href={deployment.imprintUrl} target="_blank" rel="noreferrer">Impressum</a> : null}
+          {deployment.privacyUrl ? <a href={deployment.privacyUrl} target="_blank" rel="noreferrer" onClick={external}>Datenschutzerklärung</a> : null}
+          {deployment.imprintUrl ? <a href={deployment.imprintUrl} target="_blank" rel="noreferrer" onClick={external}>Impressum</a> : null}
         </p>
       ) : null}
 
       <h3>Projekt</h3>
       <div className="about-links">
-        <a href={links.source} target="_blank" rel="noreferrer">
+        <a href={links.source} target="_blank" rel="noreferrer" onClick={external}>
           <strong>Quellcode</strong>
           <span>Open Source unter MIT-Lizenz</span>
         </a>
-        <a href={links.issues} target="_blank" rel="noreferrer">
+        <a href={links.issues} target="_blank" rel="noreferrer" onClick={external}>
           <strong>Fehler melden</strong>
           <span>Ideen und Probleme als Issue</span>
         </a>
@@ -50,11 +58,11 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
         <>
           <h3>Unterstützen</h3>
           <div className="about-links">
-            <a href={links.coffee} target="_blank" rel="noreferrer">
+            <a href={links.coffee} target="_blank" rel="noreferrer" onClick={external}>
               <strong>Buy Me a Coffee</strong>
               <span>Einmaliger Beitrag</span>
             </a>
-            <a href={links.sponsors} target="_blank" rel="noreferrer">
+            <a href={links.sponsors} target="_blank" rel="noreferrer" onClick={external}>
               <strong>GitHub Sponsors</strong>
               <span>Regelmäßige Unterstützung</span>
             </a>
