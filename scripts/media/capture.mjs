@@ -97,8 +97,7 @@ async function phone(files) {
     getSelection().removeAllRanges()
     getSelection().addRange(range)
   })
-  // Re-choosing the highlighter applies it to the selection, as a tap on a phone would.
-  await page.tap('.markup-bar button[aria-label="Auswählen (Text und Markierungen)"]')
+  // A tap on the active highlighter applies it to the selection, as on a phone.
   await page.tap('.markup-bar button[aria-label="Text hervorheben"]')
   await page.tap('.markup-bar button[aria-label="Auswählen (Text und Markierungen)"]')
   await page.waitForTimeout(400)

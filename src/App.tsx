@@ -65,6 +65,8 @@ export default function App() {
   const [tool, setTool] = useState<Tool>('select')
   const [style, setStyle] = useState<MarkupStyle>({ color: '#e5383b', width: 2, size: 14 })
   const [highlightColor, setHighlightColor] = useState('#ffd400')
+  // Bumped on every tap on the highlighter, so it also applies when already active (touch has no mouseup after selecting).
+  const [highlightRequest, setHighlightRequest] = useState(0)
   const [signatures, setSignatures] = useState<Signature[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('signatures') ?? '[]')
@@ -329,6 +331,7 @@ export default function App() {
 
   const chooseTool = (t: Tool) => {
     setTool(t)
+    if (t === 'highlight') setHighlightRequest((n) => n + 1)
     if (t !== 'select') dispatch({ type: 'selectAnnotation', target: null })
   }
 
@@ -339,6 +342,7 @@ export default function App() {
 
   const markup: Markup = {
     tool,
+    highlightRequest,
     style,
     highlightColor,
     selected: state.markup,

@@ -38,6 +38,8 @@ interface Props {
 
 export interface Markup {
   tool: Tool
+  /** Changes on every tap on the highlighter. */
+  highlightRequest: number
   style: MarkupStyle
   highlightColor: string
   selected: { pageId: string; id: string } | null
@@ -122,11 +124,11 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
     })
   }, [pages, onScrolledTo])
 
-  // Choosing the highlighter with text already selected highlights it right away.
+  // Tapping the highlighter with text already selected highlights it right away.
   useEffect(() => {
     if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, markup)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markup.tool])
+  }, [markup.tool, markup.highlightRequest])
 
   const onMouseUp = () => {
     if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, markup)
