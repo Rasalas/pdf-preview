@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import { type MarkupStyle, type Signature, type Tool } from './components/AnnotationLayer'
+import { AboutDialog } from './components/AboutDialog'
 import { EmptyState } from './components/EmptyState'
 import { MarkupBar } from './components/MarkupBar'
 import { SignatureDialog } from './components/SignatureDialog'
@@ -65,6 +66,7 @@ export default function App() {
   })
   const [signature, setSignature] = useState<Signature | null>(null)
   const [signatureDialog, setSignatureDialog] = useState(false)
+  const [about, setAbout] = useState(false)
   useEffect(() => localStorage.setItem('signatures', JSON.stringify(signatures)), [signatures])
 
   const [query, setQuery] = useState('')
@@ -373,6 +375,8 @@ export default function App() {
     { label: 'Leere Seite einfügen', run: () => insertBlank() },
     'separator',
     { label: 'Dokument schließen', disabled: !pages.length, run: () => { dispatch({ type: 'selectAll' }); dispatch({ type: 'remove' }) } },
+    'separator',
+    { label: 'Über Vorschau und Datenschutz …', run: () => setAbout(true) },
   ]
 
   // Global shortcuts. Re-bound every render so handlers see current state.
@@ -609,7 +613,7 @@ export default function App() {
 
       <main className={`workspace${dropping ? ' is-dropping' : ''}`} {...dropHandlers}>
         {empty ? (
-          <EmptyState session={session} onOpen={() => openFiles(0)} onBlank={() => insertBlank(0)} onRestore={restore} onDiscard={discard} />
+          <EmptyState session={session} onOpen={() => openFiles(0)} onBlank={() => insertBlank(0)} onRestore={restore} onDiscard={discard} onAbout={() => setAbout(true)} />
         ) : (
           <>
             {sidebarOpen ? (
@@ -658,6 +662,8 @@ export default function App() {
           e.target.value = ''
         }}
       />
+
+      {about ? <AboutDialog onClose={() => setAbout(false)} /> : null}
 
       {signatureDialog ? (
         <SignatureDialog

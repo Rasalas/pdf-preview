@@ -1,0 +1,32 @@
+# Regenerates docs/media (screenshots, demo video) and opens a pull request with the result.
+# Start it under Actions → "Bilder und Video" → "Run workflow".
+name: Bilder und Video
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  media:
+    # macOS, so screenshots use the same system font as the app on a Mac.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: command -v ffmpeg || brew install ffmpeg
+      - run: npm run media
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: media/update
+          title: Bilder und Video aktualisieren
+          commit-message: Regenerate screenshots and demo video
+          body: Automatisch mit `npm run media` erzeugt. Bitte die Bilder kurz ansehen und dann zusammenführen.
+          add-paths: docs/media

@@ -1,22 +1,32 @@
 <img src="assets/icon.svg" width="64" height="64" alt="">
 
-# pdf-preview
+# Vorschau
 
-Eine Nachbildung der macOS-App Vorschau als statische Website. PDFs und Bilder werden komplett im Browser verarbeitet und nirgends hochgeladen.
+**PDFs kombinieren, Seiten sortieren und markieren – direkt im Browser, ohne Upload.**
 
-## Funktionen
+Eine Web-App nach dem Vorbild der macOS-App Vorschau. Dateien werden ausschließlich auf deinem Gerät verarbeitet, es gibt keine Konten, kein Tracking und keinen Server, der Dokumente sieht.
 
-- PDFs und Bilder (PNG, JPEG, WebP, GIF, AVIF, …) per Drag & Drop oder Dateidialog öffnen
-- Dateien gezielt zwischen zwei Seiten einfügen: in die Seitenleiste ziehen, die Einfügemarke zeigt die Position
-- Seiten umsortieren per Drag & Drop oder mit ⌥↑/⌥↓, Mehrfachauswahl mit ⌘ und ⇧
-- Seiten drehen, duplizieren, löschen, leere Seiten einfügen
-- Widerrufen und Wiederholen für alle Änderungen, ein Import zählt als ein Schritt
-- Als PDF sichern, wahlweise nur die Auswahl; Drucken
-- Text in PDFs auswählen und kopieren
-- Im ganzen Dokument suchen; Treffer werden markiert und in der Seitenleiste pro Seite gezählt
-- Markieren wie in Vorschau (⇧⌘A): Text hervorheben, Freihand zeichnen, Rechteck, Oval, Linie, Pfeil, Textfelder und Unterschriften. Markierungen lassen sich verschieben, skalieren, umfärben und löschen und werden beim Sichern ins PDF übernommen
-- PDF-Seiten werden unverändert übernommen, Text bleibt durchsuchbar und Vektoren bleiben scharf
-- Das Arbeitsdokument wird lokal gespeichert (IndexedDB) und lässt sich nach einem Neuladen wiederherstellen
+**[Im Browser öffnen](https://rasalas.github.io/pdf-preview/)** · [Desktop-Apps herunterladen](https://github.com/Rasalas/pdf-preview/releases/latest) · [Demo-Video (MP4)](docs/media/demo.mp4)
+
+![Vorschau mit einem markierten Angebot, Seitenleiste mit Miniaturen und Markierungswerkzeugen](docs/media/hero.png)
+
+## Was die App kann
+
+- **Zusammenstellen:** PDFs und Bilder hineinziehen, gezielt zwischen zwei Seiten einfügen, Seiten per Drag & Drop umsortieren, drehen, duplizieren, löschen und leere Seiten einfügen.
+- **Markieren:** Text hervorheben, frei zeichnen, Rechtecke, Ovale, Linien, Pfeile, Textfelder und die eigene Unterschrift. Alles lässt sich verschieben, skalieren und umfärben.
+- **Lesen:** Text auswählen und kopieren, im ganzen Dokument suchen, Treffer pro Seite in der Seitenleiste.
+- **Sichern:** als neues PDF oder nur die ausgewählten Seiten, außerdem Drucken. Originalseiten bleiben unverändert erhalten, Text bleibt durchsuchbar.
+- **Sicher arbeiten:** Widerrufen für jeden Schritt, und nach einem versehentlichen Neuladen lässt sich das Dokument wiederherstellen.
+
+![Kurze Vorführung: Dateien ablegen, Seiten umsortieren, markieren, unterschreiben, suchen und sichern](docs/media/demo.gif)
+
+| Seiten umsortieren | Suchen | Dunkles Erscheinungsbild |
+| --- | --- | --- |
+| ![Zwei ausgewählte Seiten werden in der Seitenleiste verschoben](docs/media/reorder.png) | ![Suchtreffer im Dokument und in der Seitenleiste](docs/media/search.png) | ![Die App im dunklen Modus](docs/media/dark.png) |
+
+## Datenschutz
+
+Öffnen, Bearbeiten und Sichern passieren vollständig im Browser; Dateien werden nirgends hochgeladen. Das zuletzt bearbeitete Dokument und gezeichnete Unterschriften liegen nur lokal im Browser (IndexedDB bzw. `localStorage`) und lassen sich dort jederzeit verwerfen. Beim Aufruf der Seite verarbeitet allein der jeweilige Hoster technisch notwendige Daten; die App nennt ihn unter „Über und Datenschutz“.
 
 ## Tastenkürzel
 
@@ -30,14 +40,28 @@ Eine Nachbildung der macOS-App Vorschau als statische Website. PDFs und Bilder w
 | ⌘Z / ⇧⌘Z | Widerrufen / Wiederholen |
 | ⌘R / ⌘L | Nach rechts / links drehen |
 | ⌘D | Duplizieren |
-| ⌫ | Auswahl löschen |
+| ⌫ | Auswahl löschen (Seiten oder Markierung) |
 | ⌘A | Alle Seiten auswählen |
 | ↑ ↓, ⇧↑ ⇧↓ | Seite wählen, Auswahl erweitern (in der Seitenleiste) |
 | ⌥↑ ⌥↓ | Auswahl verschieben (in der Seitenleiste) |
 | ⌘+ / ⌘− / ⌘0 | Zoom |
 | ⌥⌘S | Seitenleiste ein-/ausblenden |
 | ⇧⌘A | Markierungsleiste ein-/ausblenden |
-| ⌫ / Esc | Ausgewählte Markierung löschen / abwählen |
+| Esc | Markierung abwählen |
+
+Unter Windows und Linux gilt Strg statt ⌘.
+
+## Browser
+
+Aktuelle Versionen von Chrome, Edge, Firefox und Safari (macOS und iPadOS). Getestet mit Chromium und WebKit, Letzteres auch mit nachgestellt fehlenden neuen APIs, wie sie in älteren Safari-Versionen fehlen. In Safari öffnet „Drucken“ das PDF in einem neuen Tab.
+
+## Bekannte Grenzen
+
+- Verschlüsselte PDFs werden beim Import abgelehnt.
+- Die Suche findet keine Begriffe, die in der PDF auf zwei Textstücke verteilt sind; Scans ohne Textebene sind nicht durchsuchbar.
+- Markierungen werden beim Sichern fest in den Seiteninhalt geschrieben und sind danach in anderen Programmen nicht mehr einzeln bearbeitbar.
+- Textfelder nutzen Helvetica; Zeichen außerhalb des westeuropäischen Zeichensatzes werden beim Sichern durch „?“ ersetzt.
+- Noch nicht umgesetzt: Formulare, Komprimieren, Texterkennung (OCR).
 
 ## Entwicklung
 
@@ -46,23 +70,23 @@ npm install
 npm run dev     # Entwicklungsserver
 npm test        # Tests
 npm run build   # statische Seite in dist/
+npm run media   # Screenshots und Demo-Video in docs/media neu erzeugen
 ```
 
-`dist/` kann auf jedem statischen Hosting liegen, auch in einem Unterverzeichnis.
+`npm run media` baut die App, spielt mit erfundenen Beispieldokumenten einen festen Ablauf in Chromium durch und legt Screenshots, `demo.mp4` und `demo.gif` ab (Video nur mit installiertem `ffmpeg`; `-- --no-video` überspringt es). Dasselbe läuft per Knopfdruck auf GitHub unter *Actions → Bilder und Video → Run workflow* und öffnet einen Pull Request mit den neuen Bildern.
 
-## Browser
+## Veröffentlichung
 
-Aktuelle Versionen von Chrome, Edge, Firefox und Safari (macOS und iPadOS). Getestet mit Chromium und WebKit, Letzteres auch mit nachgestellt fehlenden neuen APIs (`Promise.withResolvers`, `Map#getOrInsertComputed`, `Math.sumPrecise`), wie sie in älteren Safari-Versionen fehlen. Dafür nutzt die App den Legacy-Build von pdf.js und ein eigenes Polyfill, auch im Worker.
+Die Quelle ist dieses Repository auf GitHub. Jeder Push auf `main` veröffentlicht die App auf [GitHub Pages](https://rasalas.github.io/pdf-preview/).
 
-In Safari öffnet „Drucken“ das PDF in einem neuen Tab, weil Safari PDFs aus versteckten Frames unzuverlässig druckt.
+Auf [git.nrw](https://git.nrw) liegt ein Spiegel, der Änderungen von hier übernimmt und die App per GitLab Pages veröffentlicht (`.gitlab-ci.yml`). Einrichtung dort:
 
-Die App sollte über HTTPS ausgeliefert werden; ohne sichere Verbindung fehlen einige Browserfunktionen (für die wichtigste gibt es einen Ersatz).
+1. Neues Projekt anlegen, am besten in einer Gruppe mit weiteren Maintainern, damit Spiegel und Seite unabhängig von einzelnen Konten weiterlaufen.
+2. *Settings → Repository → Mirroring repositories*: `https://github.com/Rasalas/pdf-preview.git`, Richtung *Pull*, „Trigger pipelines for mirror updates“ aktivieren.
+3. Nach der ersten Pipeline steht die Adresse unter *Deploy → Pages*.
 
-## Bekannte Grenzen
+Die Builds unterscheiden sich nur in den Angaben zu Hoster, Datenschutz und Impressum (Umgebungsvariablen `VITE_HOST_NAME`, `VITE_PRIVACY_URL`, `VITE_IMPRINT_URL`) und darin, ob Unterstützungslinks erscheinen (`VITE_FUNDING`).
 
-- Verschlüsselte PDFs werden beim Import abgelehnt (pdf-lib kann sie nicht schreiben).
-- Die Suche findet keine Begriffe, die in der PDF auf zwei Textstücke verteilt sind (etwa über einen Zeilenumbruch hinweg). Bilder und gescannte Seiten ohne Textebene sind nicht durchsuchbar.
-- Markierungen werden beim Sichern fest in den Seiteninhalt geschrieben. Andere Programme zeigen sie überall gleich an, können sie aber nicht mehr als einzelne Anmerkungen bearbeiten.
-- Textfelder nutzen die Standardschrift Helvetica; Zeichen außerhalb von Westeuropäisch (WinAnsi) werden beim Sichern durch „?“ ersetzt.
-- Gespeicherte Unterschriften liegen im `localStorage` dieses Browsers.
-- Noch nicht umgesetzt: Formulare.
+## Lizenz
+
+[MIT](LICENSE) © Torben Buck. Verwendet [pdf.js](https://mozilla.github.io/pdf.js/) (Apache 2.0) und [pdf-lib](https://pdf-lib.js.org/) (MIT).
