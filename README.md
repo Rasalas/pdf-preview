@@ -14,6 +14,7 @@ Eine Nachbildung der macOS-App Vorschau als statische Website. PDFs und Bilder w
 - Als PDF sichern, wahlweise nur die Auswahl; Drucken
 - Text in PDFs auswählen und kopieren
 - Im ganzen Dokument suchen; Treffer werden markiert und in der Seitenleiste pro Seite gezählt
+- Markieren wie in Vorschau (⇧⌘A): Text hervorheben, Freihand zeichnen, Rechteck, Oval, Linie, Pfeil, Textfelder und Unterschriften. Markierungen lassen sich verschieben, skalieren, umfärben und löschen und werden beim Sichern ins PDF übernommen
 - PDF-Seiten werden unverändert übernommen, Text bleibt durchsuchbar und Vektoren bleiben scharf
 - Das Arbeitsdokument wird lokal gespeichert (IndexedDB) und lässt sich nach einem Neuladen wiederherstellen
 
@@ -35,6 +36,8 @@ Eine Nachbildung der macOS-App Vorschau als statische Website. PDFs und Bilder w
 | ⌥↑ ⌥↓ | Auswahl verschieben (in der Seitenleiste) |
 | ⌘+ / ⌘− / ⌘0 | Zoom |
 | ⌥⌘S | Seitenleiste ein-/ausblenden |
+| ⇧⌘A | Markierungsleiste ein-/ausblenden |
+| ⌫ / Esc | Ausgewählte Markierung löschen / abwählen |
 
 ## Entwicklung
 
@@ -51,4 +54,7 @@ npm run build   # statische Seite in dist/
 
 - Verschlüsselte PDFs werden beim Import abgelehnt (pdf-lib kann sie nicht schreiben).
 - Die Suche findet keine Begriffe, die in der PDF auf zwei Textstücke verteilt sind (etwa über einen Zeilenumbruch hinweg). Bilder und gescannte Seiten ohne Textebene sind nicht durchsuchbar.
-- Noch nicht umgesetzt: Anmerkungen, Unterschrift, Formulare.
+- Markierungen werden beim Sichern fest in den Seiteninhalt geschrieben. Andere Programme zeigen sie überall gleich an, können sie aber nicht mehr als einzelne Anmerkungen bearbeiten.
+- Textfelder nutzen die Standardschrift Helvetica; Zeichen außerhalb von Westeuropäisch (WinAnsi) werden beim Sichern durch „?“ ersetzt.
+- Gespeicherte Unterschriften liegen im `localStorage` dieses Browsers.
+- Noch nicht umgesetzt: Formulare.

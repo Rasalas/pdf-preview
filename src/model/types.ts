@@ -16,12 +16,33 @@ export interface Source {
   pages: PageSize[]
 }
 
+export interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export type Point = [x: number, y: number]
+
+/**
+ * Markup drawn over a page. Coordinates are PDF points in the source page's
+ * own orientation (before the user's rotation), origin top-left.
+ */
+export type Annotation =
+  | { id: string; type: 'highlight'; color: string; rects: Rect[] }
+  | ({ id: string; type: 'rect' | 'ellipse'; color: string; width: number } & Rect)
+  | { id: string; type: 'line'; color: string; width: number; arrow: boolean; p1: Point; p2: Point }
+  | { id: string; type: 'ink'; color: string; width: number; paths: Point[][] }
+  | { id: string; type: 'text'; color: string; size: number; x: number; y: number; text: string }
+
 /** A page in the working document: a view onto one page of a source. */
 export interface Page {
   id: string
   sourceId: string
   index: number
   rotation: Rotation
+  annotations?: Annotation[]
 }
 
 export type Sources = Record<string, Source>

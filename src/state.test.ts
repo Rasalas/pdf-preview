@@ -65,3 +65,28 @@ describe('reducer', () => {
     expect(s.selection).toHaveLength(3)
   })
 })
+
+describe('annotations', () => {
+  it('adds, edits and removes annotations as undoable steps', () => {
+    let s = run({ type: 'import', sources: [source('a', 1)], at: 0 })
+    const [page] = pagesOf(s)
+    const rect = { id: 'r', type: 'rect', color: '#f00', width: 2, x: 0, y: 0, w: 10, h: 10 } as const
+    s = reducer(s, { type: 'annotate', pageId: page.id, annotation: rect, select: true })
+    expect(s.markup).toEqual({ pageId: page.id, id: 'r' })
+    s = reducer(s, { type: 'updateAnnotation', pageId: page.id, annotation: { ...rect, x: 5 } })
+    expect(pagesOf(s)[0].annotations).toEqual([{ ...rect, x: 5 }])
+    s = reducer(s, { type: 'undo' })
+    expect(pagesOf(s)[0].annotations).toEqual([rect])
+    s = reducer(s, { type: 'undo' })
+    expect(pagesOf(s)[0].annotations ?? []).toEqual([])
+    expect(s.markup).toBeNull()
+  })
+
+  it('keeps annotations on duplicated pages', () => {
+    let s = run({ type: 'import', sources: [source('a', 1)], at: 0 })
+    const [page] = pagesOf(s)
+    s = reducer(s, { type: 'annotate', pageId: page.id, annotation: { id: 't', type: 'text', color: '#000', size: 12, x: 0, y: 0, text: 'x' } })
+    s = reducer(reducer(s, { type: 'select', id: page.id, mode: 'single' }), { type: 'duplicate' })
+    expect(pagesOf(s).map((p) => p.annotations?.length)).toEqual([1, 1])
+  })
+})

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { mergeLineRects, toPageSpace } from '../model/annotations'
+import { newId } from '../model/ids'
 import { rotatedSize } from '../model/pages'
-import type { Page, Sources } from '../model/types'
+import type { Annotation, Page, Point, Rect, Sources } from '../model/types'
+import { AnnotationLayer, type Interaction, type MarkupStyle, type Signature, type Tool } from './AnnotationLayer'
 import { renderPage, renderTextLayer } from '../pdf/pdfjs'
 import { matchRanges } from '../pdf/text'
 
@@ -28,9 +31,22 @@ interface Props {
   onScale: (scale: number) => void
   query: string
   activeHit: ActiveHit | null
+  markup: Markup
 }
 
-export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit }: Props) {
+export interface Markup {
+  tool: Tool
+  style: MarkupStyle
+  highlightColor: string
+  selected: { pageId: string; id: string } | null
+  signature: Signature | null
+  onSelect: (target: { pageId: string; id: string } | null) => void
+  onAdd: (pageId: string, a: Annotation) => void
+  onUpdate: (pageId: string, a: Annotation) => void
+  onRemove: (pageId: string, id: string) => void
+}
+
+export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const elements = useRef(new Map<string, HTMLDivElement>())
   const [width, setWidth] = useState(0)
@@ -98,8 +114,27 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
     })
   }, [pages, onScrolledTo])
 
+  // Choosing the highlighter with text already selected highlights it right away.
+  useEffect(() => {
+    if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, scale * PX_PER_PT, markup)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markup.tool])
+
+  const onMouseUp = () => {
+    if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, scale * PX_PER_PT, markup)
+  }
+
   return (
-    <div className="viewer" ref={scroller} onScroll={onScroll} tabIndex={-1}>
+    <div
+      className={`viewer tool-${markup.tool}`}
+      ref={scroller}
+      onScroll={onScroll}
+      onMouseUp={onMouseUp}
+      onPointerDown={(e) => {
+        if (!(e.target as Element).closest('[data-ann], .ann-handle, .ann-text-editor')) markup.onSelect(null)
+      }}
+      tabIndex={-1}
+    >
       <div className="viewer-pages" style={{ padding: PADDING, gap: GAP }}>
         {pages.map((page, i) => {
           const size = rotatedSize(sources[page.sourceId].pages[page.index], page.rotation)
@@ -114,6 +149,18 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
               root={scroller}
               query={query}
               activeHit={activeHit?.pageId === page.id ? activeHit : null}
+              scale={scale * PX_PER_PT}
+              interaction={{
+                tool: markup.tool,
+                style: markup.style,
+                highlightColor: markup.highlightColor,
+                selectedId: markup.selected?.pageId === page.id ? markup.selected.id : null,
+                signature: markup.signature,
+                onSelect: (id) => markup.onSelect(id ? { pageId: page.id, id } : null),
+                onAdd: (a) => markup.onAdd(page.id, a),
+                onUpdate: (a) => markup.onUpdate(page.id, a),
+                onRemove: (id) => markup.onRemove(page.id, id),
+              }}
               ref={(el) => {
                 if (el) elements.current.set(page.id, el)
                 else elements.current.delete(page.id)
@@ -135,10 +182,12 @@ interface PageProps {
   root: React.RefObject<HTMLDivElement | null>
   query: string
   activeHit: ActiveHit | null
+  scale: number
+  interaction: Interaction
   ref: (el: HTMLDivElement | null) => void
 }
 
-function ViewerPage({ page, sources, number, width, height, root, query, activeHit, ref }: PageProps) {
+function ViewerPage({ page, sources, number, width, height, root, query, activeHit, scale, interaction, ref }: PageProps) {
   const box = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [near, setNear] = useState(false)
@@ -227,6 +276,43 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
     >
       <canvas ref={canvas} />
       <div ref={textBox} className="text-box" />
+      <AnnotationLayer
+        annotations={page.annotations ?? []}
+        size={source.pages[page.index]}
+        rotation={page.rotation}
+        scale={scale}
+        interaction={interaction}
+      />
     </div>
   )
+}
+
+/** Turns the current text selection into one highlight per touched page. */
+function highlightSelection(pages: Page[], sources: Sources, elements: Map<string, HTMLDivElement>, scale: number, markup: Markup) {
+  const selection = getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return
+  const clientRects = [...selection.getRangeAt(0).getClientRects()]
+  for (const page of pages) {
+    const el = elements.get(page.id)
+    if (!el) continue
+    const box = el.getBoundingClientRect()
+    const size = sources[page.sourceId].pages[page.index]
+    const rects: Rect[] = []
+    for (const c of clientRects) {
+      const cx = c.left + c.width / 2
+      const cy = c.top + c.height / 2
+      // Element boxes in the range (like the text layer's end marker) are not text.
+      if (cx < box.left || cx > box.right || cy < box.top || cy > box.bottom || c.height > box.height * 0.15) continue
+      const a = toPageSpace([(c.left - box.left) / scale, (c.top - box.top) / scale], size, page.rotation)
+      const b = toPageSpace([(c.right - box.left) / scale, (c.bottom - box.top) / scale], size, page.rotation)
+      rects.push(rectOf(a, b))
+    }
+    const merged = mergeLineRects(rects)
+    if (merged.length) markup.onAdd(page.id, { id: newId(), type: 'highlight', color: markup.highlightColor, rects: merged })
+  }
+  selection.removeAllRanges()
+}
+
+function rectOf(a: Point, b: Point): Rect {
+  return { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) }
 }

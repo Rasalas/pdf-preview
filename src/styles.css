@@ -59,9 +59,8 @@ button { font: inherit; color: inherit; }
 .app { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); height: 100%; }
 
 /* Toolbar */
+.chrome { position: relative; z-index: 10; }
 .toolbar {
-  position: relative;
-  z-index: 10;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -369,7 +368,8 @@ button { font: inherit; color: inherit; }
 .text-box { position: absolute; inset: 0; }
 .textLayer {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   overflow: clip;
   line-height: 1;
   text-align: initial;
@@ -400,6 +400,9 @@ button { font: inherit; color: inherit; }
   transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
 }
 .textLayer .markedContent { display: contents; }
+.textLayer[data-main-rotation='90'] { transform: rotate(90deg) translateY(-100%); }
+.textLayer[data-main-rotation='180'] { transform: rotate(180deg) translate(-100%, -100%); }
+.textLayer[data-main-rotation='270'] { transform: rotate(270deg) translateX(-100%); }
 .textLayer ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); color: transparent; }
 .textLayer br::selection { background: transparent; }
 .textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; }
@@ -412,3 +415,117 @@ button { font: inherit; color: inherit; }
   background: rgb(255 196 0 / 0.42);
 }
 .textLayer mark.hit.is-active { background: rgb(255 140 0 / 0.6); box-shadow: 0 0 0 2px rgb(255 140 0 / 0.8); }
+
+/* Markup bar */
+.markup-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--chrome);
+  backdrop-filter: saturate(1.8) blur(20px);
+  border-bottom: 1px solid var(--hairline);
+  animation: bar-in 0.16s ease-out;
+  user-select: none;
+}
+@keyframes bar-in { from { opacity: 0; transform: translateY(-6px); } }
+.markup-bar .tool { width: 30px; height: 26px; }
+.markup-bar .tool[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-strong); }
+.markup-sep { width: 1px; height: 20px; background: var(--hairline); }
+.swatches, .widths { display: flex; align-items: center; gap: 4px; }
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.25);
+}
+.swatch.is-active { box-shadow: 0 0 0 2px var(--chrome-solid), 0 0 0 3.5px var(--text-2); }
+.width { display: grid; place-items: center; width: 30px; height: 24px; padding: 0 6px; border: 0; border-radius: 5px; background: none; }
+.width span { display: block; width: 100%; border-radius: 2px; background: var(--text-2); }
+.width.is-active { background: var(--control-hover); }
+.size-select { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; }
+.size-select select { font: inherit; color: var(--text); background: var(--control); border: 0; border-radius: 5px; padding: 2px 4px; box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.markup-hint { margin-left: auto; color: var(--text-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.signature-picker { position: relative; }
+.signature-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 260px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--chrome-solid);
+  box-shadow: var(--menu-shadow);
+  animation: fade-in 0.08s;
+}
+.signature-item { position: relative; display: flex; }
+.signature-item > button:first-child {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  height: 56px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 0.5px var(--hairline);
+  color: #1d1d1b;
+}
+.signature-item > button:first-child:hover { box-shadow: inset 0 0 0 2px var(--accent); }
+.signature-delete { position: absolute; top: 4px; right: 4px; display: grid; padding: 3px; border: 0; border-radius: 50%; background: var(--control); color: var(--text-2); opacity: 0; }
+.signature-item:hover .signature-delete, .signature-delete:focus-visible { opacity: 1; }
+.signature-new { padding: 6px 8px; border: 0; border-radius: 6px; background: none; text-align: left; font-weight: 500; }
+.signature-new:hover { background: var(--accent); color: var(--on-accent); }
+.signature-note { margin: 2px 8px 4px; color: var(--text-3); font-size: 11px; }
+
+/* Annotations */
+.ann-layer { position: absolute; top: 0; left: 0; transform-origin: 0 0; pointer-events: none; }
+.ann-layer svg { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.ann-layer.is-drawing { pointer-events: auto; cursor: crosshair; touch-action: none; }
+.ann-layer.is-text { cursor: text; }
+.ann.is-interactive { pointer-events: visiblePainted; cursor: move; }
+.ann-highlight { mix-blend-mode: multiply; opacity: 0.4; }
+.ann-selection { pointer-events: none; stroke: var(--accent); }
+.ann-handle { pointer-events: all; fill: #fff; stroke: var(--accent); cursor: grab; }
+.ann-handle.is-resize { cursor: nwse-resize; }
+.viewer.tool-highlight .textLayer { cursor: text; }
+.viewer.tool-highlight .textLayer ::selection { background: rgb(255 212 0 / 0.45); }
+.ann-text-editor {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 1.5px dashed var(--accent);
+  outline-offset: 3px;
+  background: rgb(255 255 255 / 0.5);
+  white-space: pre;
+  overflow: hidden;
+  resize: none;
+  pointer-events: auto;
+}
+.thumb-frame .ann-layer { z-index: 1; }
+
+/* Dialog */
+.dialog {
+  width: min(560px, calc(100vw - 32px));
+  padding: 20px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--chrome-solid);
+  color: var(--text);
+  box-shadow: var(--menu-shadow);
+}
+.dialog::backdrop { background: rgb(0 0 0 / 0.3); }
+.dialog h2 { margin: 0 0 4px; font-size: 15px; }
+.dialog p { margin: 0 0 14px; color: var(--text-2); }
+.signature-pad { display: block; width: 100%; height: 200px; border-radius: 10px; background: #fff; color: #1d1d1b; box-shadow: inset 0 0 0 0.5px var(--hairline); cursor: crosshair; touch-action: none; }
+.signature-baseline { stroke: #c8c7c2; stroke-width: 1; stroke-dasharray: 4 4; }
+.dialog-actions { display: flex; gap: 8px; margin-top: 14px; }
+.dialog-actions > span { flex: 1; }

@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'
+import { type MarkupStyle, type Signature, type Tool } from './components/AnnotationLayer'
 import { EmptyState } from './components/EmptyState'
+import { MarkupBar } from './components/MarkupBar'
+import { SignatureDialog } from './components/SignatureDialog'
 import { Icon, type IconName } from './components/icons'
 import { Menu, type MenuItem } from './components/Menu'
 import { PAGES_MIME, Sidebar } from './components/Sidebar'
-import { Viewer, type ActiveHit, type Zoom } from './components/Viewer'
+import { Viewer, type ActiveHit, type Markup, type Zoom } from './components/Viewer'
 import { rotatedSize } from './model/pages'
 import type { Page } from './model/types'
 import { buildPdf } from './pdf/export'
 import { A4, ACCEPT, ImportError, blankSource, importFile } from './pdf/import'
 import { countMatches, normalizeQuery, pageStrings } from './pdf/text'
 import { clearSession, loadSession, saveSession, type Session } from './persist'
-import { initialState, pagesOf, reducer } from './state'
+import { findAnnotation, initialState, pagesOf, reducer } from './state'
+import type { Annotation } from './model/types'
 
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4]
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
@@ -48,6 +52,21 @@ export default function App() {
   // Saving starts only once the user has decided about a stored session, so it is never overwritten by accident.
   const [persisting, setPersisting] = useState(false)
 
+  const [markupOpen, setMarkupOpen] = useState(false)
+  const [tool, setTool] = useState<Tool>('select')
+  const [style, setStyle] = useState<MarkupStyle>({ color: '#e5383b', width: 2, size: 14 })
+  const [highlightColor, setHighlightColor] = useState('#ffd400')
+  const [signatures, setSignatures] = useState<Signature[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('signatures') ?? '[]')
+    } catch {
+      return []
+    }
+  })
+  const [signature, setSignature] = useState<Signature | null>(null)
+  const [signatureDialog, setSignatureDialog] = useState(false)
+  useEffect(() => localStorage.setItem('signatures', JSON.stringify(signatures)), [signatures])
+
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<{ query: string; pages: Map<string, number>; done: boolean }>({ query: '', pages: new Map(), done: true })
   const [activeHit, setActiveHit] = useState<ActiveHit | null>(null)
@@ -73,8 +92,9 @@ export default function App() {
     return () => clearTimeout(t)
   }, [persisting, pages, state.title, state.sources])
 
-  // Show the pages an edit touched.
-  useEffect(() => setScrollRequest((n) => n + 1), [state.history])
+  // Show the pages an edit touched. Annotation edits leave the view where it is.
+  const layoutKey = pages.map((p) => `${p.id}:${p.rotation}`).join()
+  useEffect(() => setScrollRequest((n) => n + 1), [layoutKey])
 
   useEffect(() => {
     document.title = pages.length ? `${state.title || 'Unbenannt'} – Vorschau` : 'Vorschau'
@@ -252,6 +272,65 @@ export default function App() {
     clearSession()
   }
 
+  const selectedAnnotation = state.markup ? findAnnotation(pages, state.markup) : undefined
+  const selectedKind = !selectedAnnotation
+    ? null
+    : selectedAnnotation.type === 'highlight'
+      ? 'highlight'
+      : selectedAnnotation.type === 'text'
+        ? 'text'
+        : 'shape'
+
+  const updateSelected = (fn: (a: Annotation) => Annotation) => {
+    if (!state.markup || !selectedAnnotation) return
+    const next = fn(selectedAnnotation)
+    if (next !== selectedAnnotation) dispatch({ type: 'updateAnnotation', pageId: state.markup.pageId, annotation: next })
+  }
+
+  const changeStyle = (patch: Partial<MarkupStyle>) => {
+    setStyle((s) => ({ ...s, ...patch }))
+    updateSelected((a) => {
+      if (patch.color && a.type !== 'highlight') return { ...a, color: patch.color }
+      if (patch.width && 'width' in a && a.type !== 'ink') return { ...a, width: patch.width }
+      if (patch.size && a.type === 'text') return { ...a, size: patch.size }
+      return a
+    })
+  }
+
+  const changeHighlightColor = (color: string) => {
+    setHighlightColor(color)
+    updateSelected((a) => (a.type === 'highlight' ? { ...a, color } : a))
+  }
+
+  const chooseTool = (t: Tool) => {
+    setTool(t)
+    if (t !== 'select') dispatch({ type: 'selectAnnotation', target: null })
+  }
+
+  // Closing the markup bar returns to plain text selection.
+  useEffect(() => {
+    if (!markupOpen) setTool('select')
+  }, [markupOpen])
+
+  const markup: Markup = {
+    tool,
+    style,
+    highlightColor,
+    selected: state.markup,
+    signature,
+    onSelect: (target) => {
+      if (target || state.markup) dispatch({ type: 'selectAnnotation', target })
+    },
+    onAdd: (pageId, annotation) => {
+      // Like Preview: after placing a shape you are back to editing it; drawing and highlighting continue.
+      const keep = tool === 'ink' || tool === 'highlight'
+      dispatch({ type: 'annotate', pageId, annotation, select: !keep })
+      if (!keep) setTool('select')
+    },
+    onUpdate: (pageId, annotation) => dispatch({ type: 'updateAnnotation', pageId, annotation }),
+    onRemove: (pageId, id) => dispatch({ type: 'removeAnnotation', pageId, id }),
+  }
+
   const has = selection.size > 0
   const count = selection.size
   const pageWord = count === 1 ? 'Seite' : `${count} Seiten`
@@ -296,6 +375,13 @@ export default function App() {
       const run = (fn: () => void) => {
         e.preventDefault()
         fn()
+      }
+      if (mod && e.shiftKey && key === 'a') return run(() => setMarkupOpen((o) => !o))
+      if (e.key === 'Escape' && state.markup) return run(() => dispatch({ type: 'selectAnnotation', target: null }))
+      if (e.key === 'Escape' && tool !== 'select') return run(() => setTool('select'))
+      if (!mod && (e.key === 'Backspace' || e.key === 'Delete') && state.markup) {
+        const target = state.markup
+        return run(() => dispatch({ type: 'removeAnnotation', pageId: target.pageId, id: target.id }))
       }
       if (mod && key === 'f') return run(() => searchInput.current?.select())
       if (mod && key === 'g') return run(() => jump(e.shiftKey ? -1 : 1))
@@ -392,6 +478,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <div className="chrome">
       <header className="toolbar">
         <ToolButton icon="sidebar" label="Seitenleiste ein-/ausblenden" pressed={sidebarOpen && !empty} disabled={empty} onClick={() => setSidebarOpen((o) => !o)} />
         <div className="title">
@@ -433,6 +520,9 @@ export default function App() {
         <div className="toolbar-group">
           <ToolButton icon="rotateLeft" label={`Nach links drehen (${MOD}L)`} disabled={!has} onClick={() => dispatch({ type: 'rotate', delta: -90 })} />
           <ToolButton icon="rotateRight" label={`Nach rechts drehen (${MOD}R)`} disabled={!has} onClick={() => dispatch({ type: 'rotate', delta: 90 })} />
+        </div>
+        <div className="toolbar-group">
+          <ToolButton icon="markup" label="Markierungen ein-/ausblenden (⇧⌘A)" pressed={markupOpen} disabled={empty} onClick={() => setMarkupOpen((o) => !o)} />
         </div>
         <div className="toolbar-group">
           <ToolButton icon="undo" label={`Widerrufen (${MOD}Z)`} disabled={!canUndo} onClick={() => dispatch({ type: 'undo' })} />
@@ -480,6 +570,32 @@ export default function App() {
           <Icon name="chevron" width={14} height={14} />
         </button>
       </header>
+      {markupOpen && !empty ? (
+        <MarkupBar
+          tool={tool}
+          style={style}
+          highlightColor={highlightColor}
+          selectedKind={selectedKind}
+          signatures={signatures}
+          signature={signature}
+          onTool={chooseTool}
+          onStyle={changeStyle}
+          onHighlightColor={changeHighlightColor}
+          onSignature={(s) => {
+            setSignature(s)
+            chooseTool('signature')
+          }}
+          onNewSignature={() => setSignatureDialog(true)}
+          onDeleteSignature={(id) => {
+            setSignatures((all) => all.filter((s) => s.id !== id))
+            if (signature?.id === id) {
+              setSignature(null)
+              if (tool === 'signature') setTool('select')
+            }
+          }}
+        />
+      ) : null}
+      </div>
 
       <main className={`workspace${dropping ? ' is-dropping' : ''}`} {...dropHandlers}>
         {empty ? (
@@ -514,6 +630,7 @@ export default function App() {
               onScale={setScale}
               query={hits.query === q ? q : ''}
               activeHit={activeHit}
+              markup={markup}
             />
           </>
         )}
@@ -531,6 +648,18 @@ export default function App() {
           e.target.value = ''
         }}
       />
+
+      {signatureDialog ? (
+        <SignatureDialog
+          onClose={() => setSignatureDialog(false)}
+          onSave={(s) => {
+            setSignatures((all) => [...all, s])
+            setSignature(s)
+            setSignatureDialog(false)
+            chooseTool('signature')
+          }}
+        />
+      ) : null}
 
       {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : documentMenu()} onClose={() => setMenu(null)} /> : null}
 

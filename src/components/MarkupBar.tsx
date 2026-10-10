@@ -1,0 +1,169 @@
+import { useState } from 'react'
+import { inkPath, type MarkupStyle, type Signature, type Tool } from './AnnotationLayer'
+import { Icon, type IconName } from './icons'
+
+export const COLORS = ['#e5383b', '#f28c28', '#f5c400', '#2fa84f', '#2b7de9', '#8a4fd8', '#1d1d1b']
+export const HIGHLIGHT_COLORS = ['#ffd400', '#7ee36a', '#7cc7ff', '#ff8fc7', '#c9a8ff']
+const WIDTHS = [1, 2, 4]
+const SIZES = [10, 12, 14, 18, 24, 36]
+
+const TOOLS: { tool: Tool; icon: IconName; label: string }[] = [
+  { tool: 'select', icon: 'cursor', label: 'Auswählen (Text und Markierungen)' },
+  { tool: 'highlight', icon: 'marker', label: 'Text hervorheben' },
+  { tool: 'ink', icon: 'pen', label: 'Zeichnen' },
+  { tool: 'rect', icon: 'square', label: 'Rechteck' },
+  { tool: 'ellipse', icon: 'circle', label: 'Oval' },
+  { tool: 'line', icon: 'line', label: 'Linie' },
+  { tool: 'arrow', icon: 'arrow', label: 'Pfeil' },
+  { tool: 'text', icon: 'text', label: 'Text' },
+]
+
+interface Props {
+  tool: Tool
+  style: MarkupStyle
+  highlightColor: string
+  /** Kind of the selected annotation, so the bar shows the settings that apply to it. */
+  selectedKind: 'highlight' | 'text' | 'shape' | null
+  signatures: Signature[]
+  signature: Signature | null
+  onTool: (tool: Tool) => void
+  onStyle: (patch: Partial<MarkupStyle>) => void
+  onHighlightColor: (color: string) => void
+  onSignature: (s: Signature) => void
+  onNewSignature: () => void
+  onDeleteSignature: (id: string) => void
+}
+
+export function MarkupBar(p: Props) {
+  const [signatureMenu, setSignatureMenu] = useState(false)
+  const highlightMode = p.selectedKind === 'highlight' || (p.selectedKind === null && p.tool === 'highlight')
+  const textMode = p.selectedKind === 'text' || (p.selectedKind === null && p.tool === 'text')
+
+  return (
+    <div className="markup-bar" role="toolbar" aria-label="Markierungswerkzeuge">
+      <div className="toolbar-group">
+        {TOOLS.map((t) => (
+          <button key={t.tool} className="tool" title={t.label} aria-label={t.label} aria-pressed={p.tool === t.tool} onClick={() => p.onTool(t.tool)}>
+            <Icon name={t.icon} />
+          </button>
+        ))}
+        <div className="signature-picker">
+          <button
+            className="tool"
+            title="Unterschrift"
+            aria-label="Unterschrift"
+            aria-pressed={p.tool === 'signature'}
+            aria-haspopup="menu"
+            onClick={() => setSignatureMenu((o) => !o)}
+          >
+            <Icon name="signature" />
+          </button>
+          {signatureMenu ? (
+            <div className="signature-menu" role="menu" onMouseLeave={() => setSignatureMenu(false)}>
+              {p.signatures.map((s) => (
+                <div key={s.id} className="signature-item">
+                  <button
+                    role="menuitem"
+                    aria-label="Diese Unterschrift platzieren"
+                    onClick={() => {
+                      p.onSignature(s)
+                      setSignatureMenu(false)
+                    }}
+                  >
+                    <svg viewBox={`-4 -4 ${s.w + 8} ${s.h + 8}`} height="44">
+                      <path d={inkPath(s.paths)} fill="none" stroke="currentColor" strokeWidth={Math.max(s.w, s.h) / 80} strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  <button className="signature-delete" aria-label="Unterschrift löschen" onClick={() => p.onDeleteSignature(s.id)}>
+                    <Icon name="close" width={12} height={12} />
+                  </button>
+                </div>
+              ))}
+              <button
+                className="signature-new"
+                role="menuitem"
+                onClick={() => {
+                  setSignatureMenu(false)
+                  p.onNewSignature()
+                }}
+              >
+                Neue Unterschrift …
+              </button>
+              <p className="signature-note">Unterschriften werden nur in diesem Browser gespeichert.</p>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="markup-sep" />
+
+      <div className="swatches" role="radiogroup" aria-label="Farbe">
+        {(highlightMode ? HIGHLIGHT_COLORS : COLORS).map((c) => {
+          const active = highlightMode ? p.highlightColor === c : p.style.color === c
+          return (
+            <button
+              key={c}
+              className={`swatch${active ? ' is-active' : ''}`}
+              style={{ background: c }}
+              role="radio"
+              aria-checked={active}
+              aria-label={`Farbe ${c}`}
+              onClick={() => (highlightMode ? p.onHighlightColor(c) : p.onStyle({ color: c }))}
+            />
+          )
+        })}
+      </div>
+
+      {highlightMode ? null : (
+        <>
+          <div className="markup-sep" />
+          {textMode ? (
+            <label className="size-select">
+              <span>Größe</span>
+              <select value={p.style.size} onChange={(e) => p.onStyle({ size: Number(e.target.value) })}>
+                {SIZES.map((s) => (
+                  <option key={s} value={s}>
+                    {s} pt
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="widths" role="radiogroup" aria-label="Linienstärke">
+              {WIDTHS.map((w) => (
+                <button
+                  key={w}
+                  className={`width${p.style.width === w ? ' is-active' : ''}`}
+                  role="radio"
+                  aria-checked={p.style.width === w}
+                  aria-label={`Linienstärke ${w} pt`}
+                  onClick={() => p.onStyle({ width: w })}
+                >
+                  <span style={{ height: w + 1 }} />
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <span className="markup-hint">{hint(p.tool, p.signature)}</span>
+    </div>
+  )
+}
+
+function hint(tool: Tool, signature: Signature | null): string {
+  switch (tool) {
+    case 'select':
+      return 'Markierung anklicken zum Bearbeiten, Doppelklick auf Text zum Ändern'
+    case 'highlight':
+      return 'Text auswählen, um ihn hervorzuheben'
+    case 'ink':
+      return 'Auf der Seite zeichnen'
+    case 'text':
+      return 'Auf die Seite klicken und schreiben'
+    case 'signature':
+      return signature ? 'Auf die Seite klicken, um die Unterschrift zu platzieren' : ''
+    default:
+      return 'Auf der Seite ziehen'
+  }
+}

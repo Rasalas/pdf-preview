@@ -1,7 +1,7 @@
 import { commit, createHistory, redo, undo, type History } from './model/history'
 import { newId } from './model/ids'
 import { duplicatePages, insertPages, movePages, removePages, rotatePages } from './model/pages'
-import type { Page, Source, Sources } from './model/types'
+import type { Annotation, Page, Source, Sources } from './model/types'
 
 export interface State {
   history: History<Page[]>
@@ -11,6 +11,8 @@ export interface State {
   /** The page shown in the viewer. */
   current: string | null
   title: string
+  /** The selected annotation, if any. */
+  markup: { pageId: string; id: string } | null
 }
 
 export type Action =
@@ -28,6 +30,10 @@ export type Action =
   | { type: 'scrolledTo'; id: string }
   | { type: 'title'; title: string }
   | { type: 'restore'; title: string; pages: Page[]; sources: Sources }
+  | { type: 'annotate'; pageId: string; annotation: Annotation; select?: boolean }
+  | { type: 'updateAnnotation'; pageId: string; annotation: Annotation }
+  | { type: 'removeAnnotation'; pageId: string; id: string }
+  | { type: 'selectAnnotation'; target: { pageId: string; id: string } | null }
 
 export const initialState: State = {
   history: createHistory<Page[]>([]),
@@ -36,6 +42,7 @@ export const initialState: State = {
   anchor: null,
   current: null,
   title: '',
+  markup: null,
 }
 
 export const pagesOf = (s: State) => s.history.present
@@ -88,7 +95,8 @@ export function reducer(state: State, action: Action): State {
       const changed = diffIds(state.history.present, history.present)
       const keep = state.selection.filter((id) => ids.has(id))
       const selection = changed.length ? changed : keep.length ? keep : history.present.slice(0, 1).map((p) => p.id)
-      return withSelection({ ...state, history }, selection)
+      const markup = state.markup && findAnnotation(history.present, state.markup) ? state.markup : null
+      return withSelection({ ...state, history, markup }, selection)
     }
     case 'select': {
       if (action.mode === 'toggle') {
@@ -120,6 +128,20 @@ export function reducer(state: State, action: Action): State {
       return { ...state, current: action.id, selection: [action.id], anchor: action.id }
     case 'title':
       return { ...state, title: action.title }
+    case 'annotate': {
+      const next = editPage(state, action.pageId, (list) => [...list, action.annotation])
+      return action.select ? { ...next, markup: { pageId: action.pageId, id: action.annotation.id } } : next
+    }
+    case 'updateAnnotation':
+      return editPage(state, action.pageId, (list) =>
+        list.map((a) => (a.id === action.annotation.id ? action.annotation : a)),
+      )
+    case 'removeAnnotation': {
+      const next = editPage(state, action.pageId, (list) => list.filter((a) => a.id !== action.id))
+      return state.markup?.id === action.id ? { ...next, markup: null } : next
+    }
+    case 'selectAnnotation':
+      return { ...state, markup: action.target }
     case 'restore':
       return withSelection(
         { ...initialState, sources: action.sources, title: action.title, history: createHistory(action.pages) },
@@ -129,7 +151,20 @@ export function reducer(state: State, action: Action): State {
 }
 
 function edit(state: State, pages: Page[]): State {
-  return { ...state, history: commit(state.history, pages) }
+  const history = commit(state.history, pages)
+  const markup = state.markup && findAnnotation(pages, state.markup) ? state.markup : null
+  return { ...state, history, markup }
+}
+
+function editPage(state: State, pageId: string, fn: (list: Annotation[]) => Annotation[]): State {
+  return edit(
+    state,
+    pagesOf(state).map((p) => (p.id === pageId ? { ...p, annotations: fn(p.annotations ?? []) } : p)),
+  )
+}
+
+export function findAnnotation(pages: Page[], target: { pageId: string; id: string }): Annotation | undefined {
+  return pages.find((p) => p.id === target.pageId)?.annotations?.find((a) => a.id === target.id)
 }
 
 function withSelection(state: State, ids: string[]): State {

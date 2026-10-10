@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type M
 import { rotatedSize } from '../model/pages'
 import type { Page, Sources } from '../model/types'
 import { thumbnailUrl } from '../pdf/pdfjs'
+import { AnnotationLayer } from './AnnotationLayer'
 
 export const PAGES_MIME = 'application/x-vorschau-pages'
 
@@ -179,6 +180,9 @@ function Thumb({ page, sources, number, width, selected, current, hits, gapBefor
     >
       <div className="thumb-frame" style={{ width: boxW, height: boxH }}>
         {url ? <img src={url} alt="" draggable={false} /> : null}
+        {page.annotations?.length ? (
+          <AnnotationLayer annotations={page.annotations} size={source.pages[page.index]} rotation={page.rotation} scale={boxW / size.width} />
+        ) : null}
         {hits ? <span className="thumb-hits" aria-label={`${hits} Treffer`}>{hits}</span> : null}
       </div>
       <span className="thumb-number">{number}</span>
