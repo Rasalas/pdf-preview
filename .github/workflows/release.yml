@@ -1,0 +1,57 @@
+# Builds the desktop apps for macOS, Windows and Linux when a version tag is pushed
+# (e.g. `git tag v0.1.0 && git push origin v0.1.0`) and attaches them to a draft release.
+name: Desktop-Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', '__VERSION__') }}
+          releaseName: Vorschau __VERSION__
+          releaseBody: |
+            Installierbare Apps für macOS, Windows und Linux. Die Web-Version gibt es unter https://rasalas.github.io/pdf-preview/.
+
+            **Hinweis:** Die Apps sind (noch) nicht signiert.
+            - macOS: Nach dem ersten Öffnen unter *Systemeinstellungen → Datenschutz & Sicherheit* auf „Dennoch öffnen“ klicken.
+            - Windows: Bei der SmartScreen-Warnung „Weitere Informationen“ → „Trotzdem ausführen“.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
