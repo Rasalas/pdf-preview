@@ -1,3 +1,4 @@
+export { EncryptedPDFError } from 'pdf-lib'
 import {
   BlendMode,
   LineCapStyle,

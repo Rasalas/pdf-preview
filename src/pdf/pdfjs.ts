@@ -1,9 +1,17 @@
-import * as pdfjs from 'pdfjs-dist'
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import { rotatedSize } from '../model/pages'
 import type { Rotation, Source } from '../model/types'
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href
+let library: Promise<typeof import('pdfjs-dist')> | undefined
+
+/** pdf.js is large, so it is only loaded once a document needs it. */
+export function loadPdfjs() {
+  library ??= import('pdfjs-dist').then((pdfjs) => {
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href
+    return pdfjs
+  })
+  return library
+}
 
 const docs = new Map<string, Promise<PDFDocumentProxy>>()
 const bitmaps = new Map<string, Promise<ImageBitmap>>()
@@ -12,7 +20,7 @@ export function openPdf(source: Pick<Source, 'id' | 'bytes'>): Promise<PDFDocume
   let doc = docs.get(source.id)
   if (!doc) {
     // pdf.js transfers the buffer to its worker, so it gets a copy.
-    doc = pdfjs.getDocument({ data: source.bytes!.slice() }).promise
+    doc = loadPdfjs().then((pdfjs) => pdfjs.getDocument({ data: source.bytes!.slice() }).promise)
     doc.catch(() => docs.delete(source.id))
     docs.set(source.id, doc)
   }
@@ -141,7 +149,8 @@ export async function renderTextLayer(
   const target = document.createElement('div')
   target.className = 'textLayer'
   target.style.setProperty('--total-scale-factor', String(scale))
-  const layer = new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: target, viewport })
+  const { TextLayer } = await loadPdfjs()
+  const layer = new TextLayer({ textContentSource: page.streamTextContent(), container: target, viewport })
   const abort = () => layer.cancel()
   signal.addEventListener('abort', abort)
   try {
