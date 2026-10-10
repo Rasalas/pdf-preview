@@ -27,6 +27,7 @@ try {
   await scratch.close()
 
   await screenshots(files)
+  await phone(files)
   if (withVideo) await video(files)
 } finally {
   await browser?.close()
@@ -76,6 +77,39 @@ async function screenshots(files) {
   })
   await page.waitForTimeout(200)
   await shot(page, 'reorder')
+  await context.close()
+}
+
+async function phone(files) {
+  const { devices } = await import('playwright')
+  const context = await browser.newContext({ ...devices['iPhone 13'], deviceScaleFactor: 3, locale: 'de-DE' })
+  const page = await context.newPage()
+  await page.goto(url)
+  await page.setInputFiles('input[type=file]', [files.offer, files.photo, files.plan])
+  await settle(page, 0)
+  await page.waitForFunction(() => document.querySelector('.viewer-page canvas')?.width > 0)
+  await page.tap('button[aria-label="Markieren"]')
+  await page.tap('.markup-bar button[aria-label="Text hervorheben"]')
+  const heading = page.locator('.viewer-page').first().locator('.textLayer span', { hasText: 'Angebot Nr.' })
+  await heading.evaluate((el) => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    getSelection().removeAllRanges()
+    getSelection().addRange(range)
+  })
+  // A tap on the active highlighter applies it to the selection, as on a phone.
+  await page.tap('.markup-bar button[aria-label="Text hervorheben"]')
+  await page.tap('.markup-bar button[aria-label="Auswählen (Text und Markierungen)"]')
+  await page.waitForTimeout(400)
+  await shot(page, 'phone-markup')
+  await page.tap('.markup-done')
+  await page.tap('button[aria-label="Seitenübersicht"]')
+  await page.waitForFunction(() => document.querySelectorAll('.pages-panel .thumb img').length >= 4)
+  await page.tap('.pages-panel-head button')
+  await page.locator('.pages-panel .thumb').nth(2).tap()
+  await page.locator('.pages-panel .thumb').nth(3).tap()
+  await page.waitForTimeout(300)
+  await shot(page, 'phone-pages')
   await context.close()
 }
 

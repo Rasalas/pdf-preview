@@ -7,18 +7,21 @@ interface Props {
   y: number
   items: MenuItem[]
   onClose: () => void
+  /** Open upwards from y, for menus anchored at the bottom of the screen. */
+  above?: boolean
 }
 
-export function Menu({ x, y, items, onClose }: Props) {
+export function Menu({ x, y, items, onClose, above = false }: Props) {
   const el = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ x, y })
 
   // Keep the menu on screen.
   useLayoutEffect(() => {
     const r = el.current!.getBoundingClientRect()
-    setPos({ x: Math.min(x, innerWidth - r.width - 8), y: Math.min(y, innerHeight - r.height - 8) })
+    const top = above ? y - r.height : y
+    setPos({ x: Math.max(8, Math.min(x, innerWidth - r.width - 8)), y: Math.max(8, Math.min(top, innerHeight - r.height - 8)) })
     el.current!.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
-  }, [x, y])
+  }, [x, y, above])
 
   useEffect(() => {
     const down = (e: PointerEvent) => !el.current?.contains(e.target as Node) && onClose()

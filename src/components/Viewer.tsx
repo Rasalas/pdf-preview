@@ -17,8 +17,6 @@ export interface ActiveHit {
 }
 
 const PX_PER_PT = 96 / 72
-const GAP = 16
-const PADDING = 24
 
 interface Props {
   pages: Page[]
@@ -32,10 +30,16 @@ interface Props {
   query: string
   activeHit: ActiveHit | null
   markup: Markup
+  /** Space around pages; small on phones so pages use the width. */
+  padding?: number
+  /** In fit mode, size every page to the width instead of the widest page (phones). */
+  fitEach?: boolean
 }
 
 export interface Markup {
   tool: Tool
+  /** Changes on every tap on the highlighter. */
+  highlightRequest: number
   style: MarkupStyle
   highlightColor: string
   selected: { pageId: string; id: string } | null
@@ -46,7 +50,7 @@ export interface Markup {
   onRemove: (pageId: string, id: string) => void
 }
 
-export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup }: Props) {
+export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup, padding = 24, fitEach = false }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const elements = useRef(new Map<string, HTMLDivElement>())
   const [width, setWidth] = useState(0)
@@ -62,8 +66,14 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
 
   const widest = Math.max(1, ...pages.map((p) => rotatedSize(sources[p.sourceId].pages[p.index], p.rotation).width))
   // Like Preview, fitting never enlarges beyond actual size.
-  const scale = zoom === 'fit' ? Math.max(0.1, Math.min(1, (width - 2 * PADDING) / (widest * PX_PER_PT))) : zoom
-  useEffect(() => onScale(scale), [scale, onScale])
+  const scale = zoom === 'fit' ? Math.max(0.1, Math.min(1, (width - 2 * padding) / (widest * PX_PER_PT))) : zoom
+  // With per-page fitting, zoom steps should start from the page being read.
+  const currentPage = pages.find((p) => p.id === current)
+  const reported =
+    fitEach && zoom === 'fit' && currentPage
+      ? Math.max(0.1, (width - 2 * padding) / (rotatedSize(sources[currentPage.sourceId].pages[currentPage.index], currentPage.rotation).width * PX_PER_PT))
+      : scale
+  useEffect(() => onScale(reported), [reported, onScale])
 
   // Keep the page under the reading line in place while zooming or resizing.
   useLayoutEffect(() => {
@@ -78,7 +88,7 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
     const el = current && elements.current.get(current)
     if (!el || !scrollRequest) return
     ignoreScrollUntil.current = performance.now() + 100
-    scroller.current!.scrollTop = el.offsetTop - PADDING
+    scroller.current!.scrollTop = el.offsetTop - padding
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollRequest])
 
@@ -88,7 +98,7 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
     if (!el) return
     const box = scroller.current!
     if (el.offsetTop + el.offsetHeight < box.scrollTop || el.offsetTop > box.scrollTop + box.clientHeight) {
-      box.scrollTop = el.offsetTop - PADDING
+      box.scrollTop = el.offsetTop - padding
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeHit?.nonce])
@@ -114,14 +124,14 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
     })
   }, [pages, onScrolledTo])
 
-  // Choosing the highlighter with text already selected highlights it right away.
+  // Tapping the highlighter with text already selected highlights it right away.
   useEffect(() => {
-    if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, scale * PX_PER_PT, markup)
+    if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, markup)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markup.tool])
+  }, [markup.tool, markup.highlightRequest])
 
   const onMouseUp = () => {
-    if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, scale * PX_PER_PT, markup)
+    if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, markup)
   }
 
   return (
@@ -135,21 +145,23 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
       }}
       tabIndex={-1}
     >
-      <div className="viewer-pages" style={{ padding: PADDING, gap: GAP }}>
+      <div className="viewer-pages" style={{ padding, gap: Math.min(16, padding) }}>
         {pages.map((page, i) => {
           const size = rotatedSize(sources[page.sourceId].pages[page.index], page.rotation)
+          // A single wide page (e.g. a photo) would otherwise shrink every A4 page on a phone.
+          const pageScale = fitEach && zoom === 'fit' ? Math.max(0.1, (width - 2 * padding) / (size.width * PX_PER_PT)) : scale
           return (
             <ViewerPage
               key={page.id}
               page={page}
               sources={sources}
               number={i + 1}
-              width={Math.round(size.width * scale * PX_PER_PT)}
-              height={Math.round(size.height * scale * PX_PER_PT)}
+              width={Math.round(size.width * pageScale * PX_PER_PT)}
+              height={Math.round(size.height * pageScale * PX_PER_PT)}
               root={scroller}
               query={query}
               activeHit={activeHit?.pageId === page.id ? activeHit : null}
-              scale={scale * PX_PER_PT}
+              scale={pageScale * PX_PER_PT}
               interaction={{
                 tool: markup.tool,
                 style: markup.style,
@@ -288,7 +300,7 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
 }
 
 /** Turns the current text selection into one highlight per touched page. */
-function highlightSelection(pages: Page[], sources: Sources, elements: Map<string, HTMLDivElement>, scale: number, markup: Markup) {
+function highlightSelection(pages: Page[], sources: Sources, elements: Map<string, HTMLDivElement>, markup: Markup) {
   const selection = getSelection()
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return
   const clientRects = [...selection.getRangeAt(0).getClientRects()]
@@ -297,6 +309,8 @@ function highlightSelection(pages: Page[], sources: Sources, elements: Map<strin
     if (!el) continue
     const box = el.getBoundingClientRect()
     const size = sources[page.sourceId].pages[page.index]
+    // Pages may be scaled individually, so derive the scale from this page's box.
+    const scale = box.width / rotatedSize(size, page.rotation).width
     const rects: Rect[] = []
     for (const c of clientRects) {
       const cx = c.left + c.width / 2

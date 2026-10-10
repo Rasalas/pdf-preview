@@ -24,6 +24,13 @@ Eine Web-App nach dem Vorbild der macOS-App Vorschau. Dateien werden ausschließ
 | --- | --- | --- |
 | ![Zwei ausgewählte Seiten werden in der Seitenleiste verschoben](docs/media/reorder.png) | ![Suchtreffer im Dokument und in der Seitenleiste](docs/media/search.png) | ![Die App im dunklen Modus](docs/media/dark.png) |
 
+Auf dem Smartphone ordnet die App Werkzeuge in Reichweite des Daumens an: Seitenaktionen unten, Markieren als eigener Modus, die Seitenübersicht als Raster mit Auswahlmodus.
+
+<p>
+  <img src="docs/media/phone-markup.png" width="260" alt="Smartphone: hervorgehobener Text, Markierungswerkzeuge am unteren Rand">
+  <img src="docs/media/phone-pages.png" width="260" alt="Smartphone: Seitenübersicht mit zwei ausgewählten Seiten und Aktionen zum Verschieben">
+</p>
+
 ## Desktop-Apps
 
 Für macOS, Windows und Linux gibt es installierbare Apps unter [Releases](https://github.com/Rasalas/pdf-preview/releases/latest). Sie funktionieren offline, öffnen PDFs per Doppelklick oder „Öffnen mit“, sichern über den Systemdialog und drucken über den PDF-Viewer des Systems.

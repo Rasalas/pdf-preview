@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import { type MarkupStyle, type Signature, type Tool } from './components/AnnotationLayer'
 import { AboutDialog } from './components/AboutDialog'
+import { BottomBar } from './components/BottomBar'
 import { EmptyState } from './components/EmptyState'
 import { MarkupBar } from './components/MarkupBar'
 import { SignatureDialog } from './components/SignatureDialog'
@@ -14,7 +15,8 @@ import { A4, ACCEPT, ImportError, blankSource, importFile } from './pdf/import'
 import { countMatches, normalizeQuery, pageStrings } from './pdf/text'
 import { clearSession, loadSession, saveSession, type Session } from './persist'
 import { isDesktop } from './desktop'
-import { findAnnotation, initialState, pagesOf, reducer } from './state'
+import { COMPACT, useMedia } from './useMedia'
+import { findAnnotation, initialState, pagesOf, reducer, type Action } from './state'
 import type { Annotation } from './model/types'
 
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4]
@@ -46,7 +48,10 @@ export default function App() {
   const [scrollRequest, setScrollRequest] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(() => innerWidth > 720)
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem('sidebarWidth')) || 200)
-  const [menu, setMenu] = useState<{ x: number; y: number; kind: 'page' | 'document' } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; kind: 'page' | 'document' | 'more' } | null>(null)
+  const compact = useMedia(COMPACT)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [selecting, setSelecting] = useState(false)
   const [task, setTask] = useState<Task | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [session, setSession] = useState<Session | null>(null)
@@ -60,6 +65,8 @@ export default function App() {
   const [tool, setTool] = useState<Tool>('select')
   const [style, setStyle] = useState<MarkupStyle>({ color: '#e5383b', width: 2, size: 14 })
   const [highlightColor, setHighlightColor] = useState('#ffd400')
+  // Bumped on every tap on the highlighter, so it also applies when already active (touch has no mouseup after selecting).
+  const [highlightRequest, setHighlightRequest] = useState(0)
   const [signatures, setSignatures] = useState<Signature[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('signatures') ?? '[]')
@@ -345,6 +352,7 @@ export default function App() {
 
   const chooseTool = (t: Tool) => {
     setTool(t)
+    if (t === 'highlight') setHighlightRequest((n) => n + 1)
     if (t !== 'select') dispatch({ type: 'selectAnnotation', target: null })
   }
 
@@ -355,6 +363,7 @@ export default function App() {
 
   const markup: Markup = {
     tool,
+    highlightRequest,
     style,
     highlightColor,
     selected: state.markup,
@@ -406,6 +415,30 @@ export default function App() {
     { label: 'Dokument schließen', disabled: !pages.length, run: () => { dispatch({ type: 'selectAll' }); dispatch({ type: 'remove' }) } },
     'separator',
     { label: 'Über Vorschau und Datenschutz …', run: () => setAbout(true) },
+  ]
+
+  /**
+   * Touch layout outside selection mode: the selection is not visible there, so page actions
+   * apply to the page on screen. Otherwise "Delete" right after an import would remove every imported page.
+   */
+  const onVisiblePage = (action: Action) => {
+    if (!state.current) return
+    dispatch({ type: 'select', id: state.current, mode: 'single' })
+    dispatch(action)
+  }
+
+  /** Less frequent actions behind "Mehr" in the touch layout. */
+  const moreMenu = (): MenuItem[] => [
+    { label: 'Wiederholen', disabled: !canRedo, run: () => dispatch({ type: 'redo' }) },
+    { label: 'Nach links drehen', disabled: !state.current, run: () => onVisiblePage({ type: 'rotate', delta: -90 }) },
+    { label: 'Duplizieren', disabled: !state.current, run: () => onVisiblePage({ type: 'duplicate' }) },
+    { label: 'Leere Seite danach einfügen', run: () => insertBlank(currentIndex + 1) },
+    'separator',
+    { label: 'Vergrößern', run: () => zoomBy(1) },
+    { label: 'Verkleinern', run: () => zoomBy(-1) },
+    { label: 'An Breite anpassen', disabled: zoom === 'fit', run: () => setZoom('fit') },
+    'separator',
+    { label: 'Über und Datenschutz', run: () => setAbout(true) },
   ]
 
   // Global shortcuts. Re-bound every render so handlers see current state.
@@ -535,130 +568,176 @@ export default function App() {
   }
   useEffect(() => localStorage.setItem('sidebarWidth', String(sidebarWidth)), [sidebarWidth])
 
+  // The page overview covers the document on phones, so it starts closed there.
+  useEffect(() => setSidebarOpen(!compact), [compact])
+  useEffect(() => {
+    if (!sidebarOpen) setSelecting(false)
+  }, [sidebarOpen])
+
   const empty = pages.length === 0
   const canUndo = state.history.past.length > 0
   const canRedo = state.history.future.length > 0
   const currentIndex = pages.findIndex((p) => p.id === state.current)
 
+  const searchField = (
+    <div className={`search${q ? ' is-active' : ''}`}>
+      <Icon name="search" width={15} />
+      <input
+        ref={searchInput}
+        type="search"
+        enterKeyHint="search"
+        placeholder="Suchen"
+        aria-label={`Im Dokument suchen (${MOD}F)`}
+        value={query}
+        autoFocus={compact}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            jump(e.shiftKey ? -1 : 1)
+          } else if (e.key === 'Escape') {
+            setQuery('')
+            setSearchOpen(false)
+            e.currentTarget.blur()
+          }
+        }}
+      />
+      {q ? (
+        <span className="search-count" aria-live="polite">
+          {hitOrder.length === 0
+            ? hits.done && hits.query === q ? 'Keine Treffer' : '…'
+            : `${activeIndex + 1 || '–'} / ${hitOrder.length}${hits.done ? '' : '+'}`}
+        </span>
+      ) : null}
+    </div>
+  )
+
+  const taskStatus = task ? (
+    <div className="task" role="status">
+      <span className="task-label">{task.label}</span>
+      <span className="task-bar">
+        <span style={task.progress === null ? undefined : { width: `${task.progress * 100}%` }} className={task.progress === null ? 'is-indeterminate' : ''} />
+      </span>
+      {task.cancel ? <button className="task-cancel" onClick={task.cancel}>Abbrechen</button> : null}
+    </div>
+  ) : null
+
+  const markupBar = (
+    <MarkupBar
+      compact={compact}
+      onDone={() => setMarkupOpen(false)}
+      tool={tool}
+      style={style}
+      highlightColor={highlightColor}
+      selectedKind={selectedKind}
+      signatures={signatures}
+      signature={signature}
+      onTool={chooseTool}
+      onStyle={changeStyle}
+      onHighlightColor={changeHighlightColor}
+      onSignature={(s) => {
+        setSignature(s)
+        chooseTool('signature')
+      }}
+      onNewSignature={() => setSignatureDialog(true)}
+      onDeleteSignature={(id) => {
+        setSignatures((all) => all.filter((s) => s.id !== id))
+        if (signature?.id === id) {
+          setSignature(null)
+          if (tool === 'signature') setTool('select')
+        }
+      }}
+    />
+  )
+
   return (
     <div className="app">
       <div className="chrome">
-      <header className="toolbar">
-        <ToolButton icon="sidebar" label="Seitenleiste ein-/ausblenden" pressed={sidebarOpen && !empty} disabled={empty} onClick={() => setSidebarOpen((o) => !o)} />
-        <div className="title">
-          {empty ? (
-            <span className="title-app">Vorschau</span>
-          ) : (
-            <>
-              <input
-                className="title-input"
-                value={state.title}
-                placeholder="Unbenannt"
-                aria-label="Dokumentname"
-                size={Math.max(8, state.title.length)}
-                onChange={(e) => dispatch({ type: 'title', title: e.target.value })}
-                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-              />
-              <span className="title-meta">
-                {count > 1 ? `${count} von ${pages.length} Seiten ausgewählt` : `Seite ${currentIndex + 1} von ${pages.length}`}
-              </span>
-            </>
-          )}
-        </div>
-        {task ? (
-          <div className="task" role="status">
-            <span className="task-label">{task.label}</span>
-            <span className="task-bar">
-              <span style={task.progress === null ? undefined : { width: `${task.progress * 100}%` }} className={task.progress === null ? 'is-indeterminate' : ''} />
-            </span>
-            {task.cancel ? <button className="task-cancel" onClick={task.cancel}>Abbrechen</button> : null}
-          </div>
-        ) : null}
-        <div className="toolbar-group">
-          <ToolButton icon="zoomOut" label={`Verkleinern (${MOD}−)`} disabled={empty} onClick={() => zoomBy(-1)} />
-          <button className="zoom-label" disabled={empty} onClick={() => setZoom(zoom === 'fit' ? 1 : 'fit')} title={zoom === 'fit' ? 'Originalgröße' : 'An Fensterbreite anpassen'}>
-            {Math.round(scale * 100)} %
-          </button>
-          <ToolButton icon="zoomIn" label={`Vergrößern (${MOD}+)`} disabled={empty} onClick={() => zoomBy(1)} />
-        </div>
-        <div className="toolbar-group">
-          <ToolButton icon="rotateLeft" label={`Nach links drehen (${MOD}L)`} disabled={!has} onClick={() => dispatch({ type: 'rotate', delta: -90 })} />
-          <ToolButton icon="rotateRight" label={`Nach rechts drehen (${MOD}R)`} disabled={!has} onClick={() => dispatch({ type: 'rotate', delta: 90 })} />
-        </div>
-        <div className="toolbar-group">
-          <ToolButton icon="markup" label="Markierungen ein-/ausblenden (⇧⌘A)" pressed={markupOpen} disabled={empty} onClick={() => setMarkupOpen((o) => !o)} />
-        </div>
-        <div className="toolbar-group">
-          <ToolButton icon="undo" label={`Widerrufen (${MOD}Z)`} disabled={!canUndo} onClick={() => dispatch({ type: 'undo' })} />
-          <ToolButton icon="redo" label={`Wiederholen (⇧${MOD}Z)`} disabled={!canRedo} onClick={() => dispatch({ type: 'redo' })} />
-        </div>
-        <div className="toolbar-group">
-          <ToolButton icon="trash" label="Ausgewählte Seiten löschen (⌫)" disabled={!has} onClick={() => dispatch({ type: 'remove' })} />
-          <ToolButton icon="plus" label={`Dateien einfügen (${MOD}O)`} onClick={() => openFiles()} />
-        </div>
-        {empty ? null : (
-          <div className={`search${q ? ' is-active' : ''}`}>
-            <Icon name="search" width={14} height={14} />
-            <input
-              ref={searchInput}
-              type="search"
-              placeholder="Suchen"
-              aria-label={`Im Dokument suchen (${MOD}F)`}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  jump(e.shiftKey ? -1 : 1)
-                } else if (e.key === 'Escape') {
-                  setQuery('')
-                  e.currentTarget.blur()
-                }
-              }}
+      <header className={`toolbar${compact ? ' is-compact' : ''}`}>
+        {compact && searchOpen && !empty ? (
+          <>
+            {searchField}
+            <ToolButton icon="up" label="Vorheriger Treffer" disabled={!hitOrder.length} onClick={() => jump(-1)} />
+            <ToolButton icon="down" label="Nächster Treffer" disabled={!hitOrder.length} onClick={() => jump(1)} />
+            <button className="button is-quiet search-cancel" onClick={() => { setQuery(''); setSearchOpen(false) }}>
+              Fertig
+            </button>
+          </>
+        ) : (
+          <>
+            <ToolButton
+              icon={compact ? 'pages' : 'sidebar'}
+              label={compact ? 'Seitenübersicht' : 'Seitenleiste ein-/ausblenden'}
+              pressed={sidebarOpen && !empty}
+              disabled={empty}
+              onClick={() => setSidebarOpen((o) => !o)}
             />
-            {q ? (
-              <span className="search-count" aria-live="polite">
-                {hitOrder.length === 0
-                  ? hits.done && hits.query === q ? 'Keine Treffer' : '…'
-                  : `${activeIndex + 1 || '–'} / ${hitOrder.length}${hits.done ? '' : '+'}`}
-              </span>
-            ) : null}
-          </div>
+            <div className="title">
+              {empty ? (
+                <span className="title-app">Vorschau</span>
+              ) : (
+                <>
+                  <input
+                    className="title-input"
+                    value={state.title}
+                    placeholder="Unbenannt"
+                    aria-label="Dokumentname"
+                    size={Math.max(8, state.title.length)}
+                    onChange={(e) => dispatch({ type: 'title', title: e.target.value })}
+                    onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                  />
+                  <span className="title-meta">
+                    {count > 1 && (!compact || selecting) ? `${count} von ${pages.length} Seiten ausgewählt` : `Seite ${currentIndex + 1} von ${pages.length}`}
+                  </span>
+                </>
+              )}
+            </div>
+            {!compact && task ? taskStatus : null}
+            {compact ? null : (
+              <>
+                <div className="toolbar-group">
+                  <ToolButton icon="zoomOut" label={`Verkleinern (${MOD}−)`} disabled={empty} onClick={() => zoomBy(-1)} />
+                  <button className="zoom-label" disabled={empty} onClick={() => setZoom(zoom === 'fit' ? 1 : 'fit')} title={zoom === 'fit' ? 'Originalgröße' : 'An Fensterbreite anpassen'}>
+                    {Math.round(scale * 100)} %
+                  </button>
+                  <ToolButton icon="zoomIn" label={`Vergrößern (${MOD}+)`} disabled={empty} onClick={() => zoomBy(1)} />
+                </div>
+                <div className="toolbar-group">
+                  <ToolButton icon="rotateLeft" label={`Nach links drehen (${MOD}L)`} disabled={!has} onClick={() => dispatch({ type: 'rotate', delta: -90 })} />
+                  <ToolButton icon="rotateRight" label={`Nach rechts drehen (${MOD}R)`} disabled={!has} onClick={() => dispatch({ type: 'rotate', delta: 90 })} />
+                </div>
+              </>
+            )}
+            {compact && !empty ? <ToolButton icon="search" label="Im Dokument suchen" onClick={() => setSearchOpen(true)} /> : null}
+            <div className="toolbar-group">
+              <ToolButton icon="markup" label={compact ? 'Markieren' : 'Markierungen ein-/ausblenden (⇧⌘A)'} pressed={markupOpen} disabled={empty} onClick={() => setMarkupOpen((o) => !o)} />
+            </div>
+            {compact ? null : (
+              <>
+                <div className="toolbar-group">
+                  <ToolButton icon="undo" label={`Widerrufen (${MOD}Z)`} disabled={!canUndo} onClick={() => dispatch({ type: 'undo' })} />
+                  <ToolButton icon="redo" label={`Wiederholen (⇧${MOD}Z)`} disabled={!canRedo} onClick={() => dispatch({ type: 'redo' })} />
+                </div>
+                <div className="toolbar-group">
+                  <ToolButton icon="trash" label="Ausgewählte Seiten löschen (⌫)" disabled={!has} onClick={() => dispatch({ type: 'remove' })} />
+                  <ToolButton icon="plus" label={`Dateien einfügen (${MOD}O)`} onClick={() => openFiles()} />
+                </div>
+                {empty ? null : searchField}
+              </>
+            )}
+            <button className="button is-primary export-button" disabled={empty} onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              setMenu({ x: r.right - 250, y: r.bottom + 6, kind: 'document' })
+            }} aria-haspopup="menu">
+              <Icon name="save" />
+              Sichern
+              {compact ? null : <Icon name="chevron" width={14} />}
+            </button>
+          </>
         )}
-        <button className="button is-primary export-button" disabled={empty} onClick={(e) => {
-          const r = e.currentTarget.getBoundingClientRect()
-          setMenu({ x: r.right - 250, y: r.bottom + 6, kind: 'document' })
-        }} aria-haspopup="menu">
-          <Icon name="share" />
-          Sichern
-          <Icon name="chevron" width={14} height={14} />
-        </button>
       </header>
-      {markupOpen && !empty ? (
-        <MarkupBar
-          tool={tool}
-          style={style}
-          highlightColor={highlightColor}
-          selectedKind={selectedKind}
-          signatures={signatures}
-          signature={signature}
-          onTool={chooseTool}
-          onStyle={changeStyle}
-          onHighlightColor={changeHighlightColor}
-          onSignature={(s) => {
-            setSignature(s)
-            chooseTool('signature')
-          }}
-          onNewSignature={() => setSignatureDialog(true)}
-          onDeleteSignature={(id) => {
-            setSignatures((all) => all.filter((s) => s.id !== id))
-            if (signature?.id === id) {
-              setSignature(null)
-              if (tool === 'signature') setTool('select')
-            }
-          }}
-        />
-      ) : null}
+      {compact && task ? taskStatus : null}
+      {markupOpen && !empty && !compact ? markupBar : null}
       </div>
 
       <main className={`workspace${dropping ? ' is-dropping' : ''}`} {...dropHandlers}>
@@ -666,7 +745,45 @@ export default function App() {
           <EmptyState session={session} onOpen={() => openFiles(0)} onBlank={() => insertBlank(0)} onRestore={restore} onDiscard={discard} onAbout={() => setAbout(true)} />
         ) : (
           <>
-            {sidebarOpen ? (
+            {sidebarOpen && compact ? (
+              <aside className="pages-panel" aria-label="Seitenübersicht">
+                <div className="pages-panel-head">
+                  <strong>{selecting && count ? `${count} ausgewählt` : `${pages.length} ${pages.length === 1 ? 'Seite' : 'Seiten'}`}</strong>
+                  <button
+                    className="button is-quiet"
+                    onClick={() => {
+                      // Like in Photos: selecting starts from nothing, so a tap never unselects by surprise.
+                      if (!selecting) dispatch({ type: 'selectNone' })
+                      setSelecting(!selecting)
+                    }}
+                  >
+                    {selecting ? 'Fertig' : 'Auswählen'}
+                  </button>
+                </div>
+                <Sidebar
+                  pages={pages}
+                  sources={state.sources}
+                  selection={selection}
+                  current={state.current}
+                  width={186}
+                  onSelect={select}
+                  onMove={(gap) => dispatch({ type: 'move', gap })}
+                  onDropFiles={importFiles}
+                  onContextMenu={onThumbContextMenu}
+                  onKeyDown={onSidebarKey}
+                  hits={q ? hits.pages : null}
+                  grid
+                  onTap={(id) => {
+                    if (selecting) {
+                      dispatch({ type: 'select', id, mode: 'toggle' })
+                      return
+                    }
+                    select(id, 'single')
+                    setSidebarOpen(false)
+                  }}
+                />
+              </aside>
+            ) : sidebarOpen ? (
               <aside className="sidebar" style={{ width: sidebarWidth }}>
                 <Sidebar
                   pages={pages}
@@ -695,11 +812,48 @@ export default function App() {
               query={hits.query === q ? q : ''}
               activeHit={activeHit}
               markup={markup}
+              padding={compact ? 8 : 24}
+              fitEach={compact}
             />
           </>
         )}
         {dropping ? <div className="drop-hint">{empty ? 'Loslassen zum Öffnen' : 'Loslassen, um am Ende anzuhängen'}</div> : null}
       </main>
+
+      {compact && !empty ? (
+        markupOpen ? (
+          markupBar
+        ) : sidebarOpen && selecting ? (
+          <BottomBar
+            label="Ausgewählte Seiten"
+            actions={[
+              { icon: 'up', label: 'Nach vorn', disabled: !has, run: () => dispatch({ type: 'nudge', delta: -1 }) },
+              { icon: 'down', label: 'Nach hinten', disabled: !has, run: () => dispatch({ type: 'nudge', delta: 1 }) },
+              { icon: 'rotateRight', label: 'Drehen', disabled: !has, run: () => dispatch({ type: 'rotate', delta: 90 }) },
+              { icon: 'duplicate', label: 'Duplizieren', disabled: !has, run: () => dispatch({ type: 'duplicate' }) },
+              { icon: 'trash', label: 'Löschen', disabled: !has, danger: true, run: () => dispatch({ type: 'remove' }) },
+            ]}
+          />
+        ) : (
+          <BottomBar
+            label="Seitenaktionen"
+            actions={[
+              { icon: 'undo', label: 'Widerrufen', disabled: !canUndo, run: () => dispatch({ type: 'undo' }) },
+              { icon: 'plus', label: 'Einfügen', run: () => openFiles() },
+              { icon: 'rotateRight', label: 'Drehen', disabled: !state.current, run: () => onVisiblePage({ type: 'rotate', delta: 90 }) },
+              { icon: 'trash', label: 'Löschen', disabled: !state.current, danger: true, run: () => onVisiblePage({ type: 'remove' }) },
+              {
+                icon: 'more',
+                label: 'Mehr',
+                run: (e) => {
+                  const r = e.currentTarget.getBoundingClientRect()
+                  setMenu({ x: r.right - 250, y: r.top - 8, kind: 'more' })
+                },
+              },
+            ]}
+          />
+        )
+      ) : null}
 
       <input
         ref={fileInput}
@@ -727,7 +881,8 @@ export default function App() {
         />
       ) : null}
 
-      {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : documentMenu()} onClose={() => setMenu(null)} /> : null}
+      {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : menu.kind === 'more' ? moreMenu() : documentMenu()}
+          above={menu.kind === 'more'} onClose={() => setMenu(null)} /> : null}
 
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (

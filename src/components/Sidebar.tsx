@@ -19,9 +19,12 @@ interface Props {
   onKeyDown: (e: KeyboardEvent) => void
   /** Search hits per page id, or null when not searching. */
   hits: ReadonlyMap<string, number> | null
+  /** Touch layout: pages in a grid, a tap calls onTap instead of the desktop selection logic. */
+  grid?: boolean
+  onTap?: (id: string) => void
 }
 
-export function Sidebar({ pages, sources, selection, current, width, onSelect, onMove, onDropFiles, onContextMenu, onKeyDown, hits }: Props) {
+export function Sidebar({ pages, sources, selection, current, width, onSelect, onMove, onDropFiles, onContextMenu, onKeyDown, hits, grid = false, onTap }: Props) {
   const list = useRef<HTMLDivElement>(null)
   const [gap, setGap] = useState<number | null>(null)
   const thumbWidth = width - 56
@@ -31,11 +34,14 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
     list.current?.querySelector<HTMLElement>(`[data-id="${current}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [current])
 
-  const gapAt = (clientY: number) => {
+  const gapAt = (clientX: number, clientY: number) => {
     const items = [...list.current!.querySelectorAll<HTMLElement>('.thumb')]
     const i = items.findIndex((el) => {
       const r = el.getBoundingClientRect()
-      return clientY < r.top + r.height / 2
+      if (!grid) return clientY < r.top + r.height / 2
+      // In a grid the gap is left of the first item in the pointer's row that lies right of it.
+      if (clientY < r.top) return true
+      return clientY <= r.bottom && clientX < r.left + r.width / 2
     })
     return i < 0 ? items.length : i
   }
@@ -47,7 +53,7 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
     e.preventDefault()
     e.stopPropagation()
     e.dataTransfer.dropEffect = e.dataTransfer.types.includes(PAGES_MIME) ? 'move' : 'copy'
-    setGap(gapAt(e.clientY))
+    setGap(gapAt(e.clientX, e.clientY))
     autoScroll(list.current!, e.clientY)
   }
 
@@ -55,7 +61,7 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
     if (!accepts(e)) return
     e.preventDefault()
     e.stopPropagation()
-    const at = gapAt(e.clientY)
+    const at = gapAt(e.clientX, e.clientY)
     setGap(null)
     if (e.dataTransfer.types.includes(PAGES_MIME)) onMove(at)
     else onDropFiles([...e.dataTransfer.files], at)
@@ -64,7 +70,7 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
   return (
     <div
       ref={list}
-      className="sidebar-list"
+      className={`sidebar-list${grid ? ' is-grid' : ''}`}
       role="listbox"
       aria-label="Seiten"
       aria-multiselectable="true"
@@ -91,6 +97,7 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
           onSelect={onSelect}
           onContextMenu={onContextMenu}
           onDragEnd={() => setGap(null)}
+          onTap={onTap}
           root={list}
         />
       ))}
@@ -118,10 +125,11 @@ interface ThumbProps {
   onSelect: Props['onSelect']
   onContextMenu: Props['onContextMenu']
   onDragEnd: () => void
+  onTap?: (id: string) => void
   root: React.RefObject<HTMLDivElement | null>
 }
 
-function Thumb({ page, sources, number, width, selected, current, hits, gapBefore, gapAfter, onSelect, onContextMenu, onDragEnd, root }: ThumbProps) {
+function Thumb({ page, sources, number, width, selected, current, hits, gapBefore, gapAfter, onSelect, onContextMenu, onDragEnd, onTap, root }: ThumbProps) {
   const el = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
@@ -162,14 +170,15 @@ function Thumb({ page, sources, number, width, selected, current, hits, gapBefor
       aria-label={`Seite ${number}`}
       draggable
       onMouseDown={(e) => {
-        if (e.button !== 0) return
+        if (e.button !== 0 || onTap) return
         const mode = e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'single'
         // A plain click on a selected page may start dragging the whole selection.
         if (mode === 'single' && selected) return
         onSelect(page.id, mode)
       }}
       onClick={(e) => {
-        if (!e.shiftKey && !e.metaKey && !e.ctrlKey && selected) onSelect(page.id, 'single')
+        if (onTap) onTap(page.id)
+        else if (!e.shiftKey && !e.metaKey && !e.ctrlKey && selected) onSelect(page.id, 'single')
       }}
       onContextMenu={(e) => onContextMenu(e, page.id)}
       onDragStart={(e) => {
