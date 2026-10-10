@@ -67,6 +67,7 @@ button { font: inherit; color: inherit; }
   height: 52px;
   padding: 0 12px;
   background: var(--chrome);
+  -webkit-backdrop-filter: saturate(1.8) blur(20px);
   backdrop-filter: saturate(1.8) blur(20px);
   border-bottom: 1px solid var(--hairline);
   user-select: none;
@@ -279,6 +280,7 @@ button { font: inherit; color: inherit; }
   padding: 5px;
   border-radius: 9px;
   background: var(--chrome);
+  -webkit-backdrop-filter: saturate(1.8) blur(24px);
   backdrop-filter: saturate(1.8) blur(24px);
   box-shadow: var(--menu-shadow);
   animation: fade-in 0.08s;
@@ -424,6 +426,7 @@ button { font: inherit; color: inherit; }
   height: 40px;
   padding: 0 12px;
   background: var(--chrome);
+  -webkit-backdrop-filter: saturate(1.8) blur(20px);
   backdrop-filter: saturate(1.8) blur(20px);
   border-bottom: 1px solid var(--hairline);
   animation: bar-in 0.16s ease-out;

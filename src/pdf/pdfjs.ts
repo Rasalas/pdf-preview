@@ -4,10 +4,15 @@ import type { Rotation, Source } from '../model/types'
 
 let library: Promise<typeof import('pdfjs-dist')> | undefined
 
-/** pdf.js is large, so it is only loaded once a document needs it. */
+/**
+ * pdf.js is large, so it is only loaded once a document needs it.
+ * The legacy build polyfills APIs (Map#getOrInsertComputed, Math.sumPrecise) that the modern
+ * build uses unguarded and that Safari and older Chrome versions lack.
+ */
 export function loadPdfjs() {
-  library ??= import('pdfjs-dist').then((pdfjs) => {
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href
+  library ??= import('pdfjs-dist/legacy/build/pdf.mjs').then((pdfjs) => {
+    // One shared worker, started from our own entry so it gets the polyfills too.
+    pdfjs.GlobalWorkerOptions.workerPort = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
     return pdfjs
   })
   return library
