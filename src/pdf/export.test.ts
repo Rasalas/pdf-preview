@@ -45,3 +45,28 @@ describe('buildPdf', () => {
     expect(out.getPage(1).ref).not.toEqual(out.getPage(2).ref)
   })
 })
+
+describe('buildPdf with annotations', () => {
+  it('flattens every annotation type, also on pages with their own /Rotate', async () => {
+    const a = await pdfSource('rotated', ['A1'], 90)
+    const pages: Page[] = [
+      {
+        id: '1',
+        sourceId: 'rotated',
+        index: 0,
+        rotation: 90,
+        annotations: [
+          { id: 'h', type: 'highlight', color: '#ffd400', rects: [{ x: 1, y: 1, w: 50, h: 10 }] },
+          { id: 'r', type: 'rect', color: '#ff0000', width: 2, x: 10, y: 10, w: 50, h: 30 },
+          { id: 'e', type: 'ellipse', color: '#0000ff', width: 2, x: 10, y: 10, w: 50, h: 30 },
+          { id: 'l', type: 'line', color: '#000000', width: 2, arrow: true, p1: [0, 0], p2: [40, 40] },
+          { id: 'i', type: 'ink', color: '#000000', width: 2, paths: [[[0, 0], [5, 5], [9, 2]], [[3, 3]]] },
+          { id: 't', type: 'text', color: '#000000', size: 12, x: 10, y: 100, text: 'Grüße\n€ 5 ✓' },
+        ],
+      },
+    ]
+    const out = await PDFDocument.load(await buildPdf(pages, { rotated: a }, 'Annotiert'))
+    expect(out.getPage(0).getRotation().angle).toBe(180)
+    expect(out.getPage(0).node.Contents()).toBeDefined()
+  })
+})
