@@ -1,7 +1,5 @@
-import { EncryptedPDFError } from 'pdf-lib'
 import { newId } from '../model/ids'
 import type { PageSize, Source } from '../model/types'
-import { loadForExport } from './export'
 import { openPdf } from './pdfjs'
 
 export class ImportError extends Error {}
@@ -22,6 +20,8 @@ export async function importFile(file: File): Promise<Source> {
 async function importPdf(file: File): Promise<Source> {
   const id = newId()
   const bytes = new Uint8Array(await file.arrayBuffer())
+  // pdf-lib must be able to read the file, or it could not be exported later.
+  const { loadForExport, EncryptedPDFError } = await import('./export')
   try {
     await loadForExport(id, bytes)
   } catch (e) {

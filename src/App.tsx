@@ -9,7 +9,6 @@ import { PAGES_MIME, Sidebar } from './components/Sidebar'
 import { Viewer, type ActiveHit, type Markup, type Zoom } from './components/Viewer'
 import { rotatedSize } from './model/pages'
 import type { Page } from './model/types'
-import { buildPdf } from './pdf/export'
 import { A4, ACCEPT, ImportError, blankSource, importFile } from './pdf/import'
 import { countMatches, normalizeQuery, pageStrings } from './pdf/text'
 import { clearSession, loadSession, saveSession, type Session } from './persist'
@@ -202,6 +201,7 @@ export default function App() {
     let cancelled = false
     setTask({ label: 'PDF wird erstellt', progress: 0, cancel: () => (cancelled = true) })
     try {
+      const { buildPdf } = await import('./pdf/export')
       const bytes = await buildPdf(list, state.sources, title, (done, total) => {
         if (cancelled) throw new DOMException('Abgebrochen', 'AbortError')
         setTask((t) => t && { ...t, progress: done / total })
@@ -221,6 +221,7 @@ export default function App() {
     if (pages.length === 0) return
     setTask({ label: 'Druck wird vorbereitet', progress: null })
     try {
+      const { buildPdf } = await import('./pdf/export')
       const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt')
       const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
       const frame = document.createElement('iframe')
