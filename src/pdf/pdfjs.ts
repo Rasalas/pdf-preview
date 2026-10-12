@@ -21,11 +21,23 @@ export function loadPdfjs() {
 const docs = new Map<string, Promise<PDFDocumentProxy>>()
 const bitmaps = new Map<string, Promise<ImageBitmap>>()
 
+// Copied into the build by vite.config.ts. Absolute, because the worker resolves relative URLs against itself.
+const asset = (dir: string) => new URL(`pdfjs/${dir}/`, document.baseURI).href
+
 export function openPdf(source: Pick<Source, 'id' | 'bytes'>): Promise<PDFDocumentProxy> {
   let doc = docs.get(source.id)
   if (!doc) {
     // pdf.js transfers the buffer to its worker, so it gets a copy.
-    doc = loadPdfjs().then((pdfjs) => pdfjs.getDocument({ data: source.bytes!.slice() }).promise)
+    doc = loadPdfjs().then(
+      (pdfjs) =>
+        pdfjs.getDocument({
+          data: source.bytes!.slice(),
+          wasmUrl: asset('wasm'),
+          iccUrl: asset('iccs'),
+          cMapUrl: asset('cmaps'),
+          standardFontDataUrl: asset('standard_fonts'),
+        }).promise,
+    )
     doc.catch(() => docs.delete(source.id))
     docs.set(source.id, doc)
   }

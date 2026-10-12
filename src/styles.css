@@ -165,11 +165,11 @@ button { font: inherit; color: inherit; }
 }
 .thumb-frame img { width: 100%; height: 100%; display: block; }
 @keyframes fade-in { from { opacity: 0; } }
-.thumb-number { min-width: 22px; padding: 1px 7px; border-radius: 9px; font-size: 11px; text-align: center; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.thumb-number { min-width: 22px; font-size: 11px; text-align: center; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .thumb.is-selected .thumb-frame { outline-color: var(--text-3); }
-.thumb.is-selected .thumb-number { background: var(--text-3); color: var(--surface); }
+.thumb.is-selected .thumb-number { color: var(--text); font-weight: 600; }
 .sidebar-list:focus-within .thumb.is-selected .thumb-frame { outline-color: var(--accent); }
-.sidebar-list:focus-within .thumb.is-selected .thumb-number { background: var(--accent); color: var(--on-accent); }
+.sidebar-list:focus-within .thumb.is-selected .thumb-number { color: var(--accent); }
 
 /* Insertion marker */
 .thumb.gap-before::before, .thumb.gap-after::after {
