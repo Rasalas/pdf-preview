@@ -1,5 +1,6 @@
 import { PDFDocument, PDFName, StandardFonts, degrees } from 'pdf-lib'
 import { describe, expect, it } from 'vitest'
+import { visibleRect } from '../model/crop'
 import { fromReadingRect, toReadingSpace, type OcrPage } from '../model/ocr'
 import { normalizeRotation, rotatedSize } from '../model/pages'
 import type { Page, PageSize, Rect, Rotation, Source } from '../model/types'
@@ -109,6 +110,24 @@ describe('buildPdf with recognised text', () => {
     const expected = displayed({ x: 30, y: 40 + 12 * 0.8 }, own, 0, 90)
     expect(at[0]).toBeCloseTo(expected[0], 1)
     expect(at[1]).toBeCloseTo(expected[1], 1)
+  })
+
+  it('keeps words where they are on a cropped page and leaves out the ones cropped away', async () => {
+    const crop = { x: 100, y: 120, w: 90, h: 100 }
+    for (const turn of [0, 90, 270] as Rotation[]) {
+      const read = (text: string, x: number, y: number) => readPage(size, 0, text, { x, y, w: 40, h: 10 }).lines[0].words[0]
+      const ocr: OcrPage = { rotation: 0, lines: [{ words: [read('Weg', 20, 30), read('Bleibt', 110, 150)] }] }
+      const pages: Page[] = [{ id: 'p', sourceId: 'b', index: 0, rotation: turn, crop }]
+      const page = await pdfjsPage(await buildPdf(pages, { b: blank('b') }, 'T', undefined, { ocr: { b: { 0: ocr } } }))
+      const items = await textItems(page)
+      expect(items.map((i) => i.str)).toEqual(['Bleibt'])
+      // The crop moves the page's corner, not the text on it.
+      const shown = visibleRect(size, { rotation: turn, crop })
+      const at = page.getViewport({ scale: 1 }).convertToViewportPoint(items[0].transform[4], items[0].transform[5])
+      const expected = displayed({ x: 110, y: 150 + 10 * 0.8 }, size, 0, turn)
+      expect(at[0]).toBeCloseTo(expected[0] - shown.x, 1)
+      expect(at[1]).toBeCloseTo(expected[1] - shown.y, 1)
+    }
   })
 
   it('keeps the words of a line together for searching, and replaces what the font cannot encode', async () => {

@@ -1,6 +1,6 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream, StandardFonts, type PDFObject } from 'pdf-lib'
 import { describe, expect, it, vi } from 'vitest'
-import type { Page, Source } from '../model/types'
+import type { Page, Rect, Source } from '../model/types'
 import type { Codec } from './codec'
 import { collectImages, compressImages, formatSize, isCompact, matchesJpeg, planImage, savingsMessage, scaleFor, subProgress, worthReplacing, type Plan } from './compress'
 import { deflate, inflate, packBilevel, unpredict, type Raster } from './raster'
@@ -629,6 +629,19 @@ describe('buildPdf with compress', () => {
     }
     expect(content(textPage)).toBe(content(original))
     expect(content(textPage)).not.toBe('')
+  })
+
+  it('sizes images by the whole page of a cropped page, which they keep covering', async () => {
+    const photo = await imageSource('photo')
+    const widthOf = async (crop?: Rect) => {
+      const pages: Page[] = [{ id: '1', sourceId: 'photo', index: 0, rotation: 0, crop }]
+      const out = await PDFDocument.load(await buildPdf(pages, { photo }, 'Test', undefined, { compress: true }))
+      const [, image] = out.context.enumerateIndirectObjects().find(([, o]) => o instanceof PDFRawStream && o.dict.lookup(PDFName.of('Subtype')) === PDFName.of('Image'))!
+      return ((image as PDFRawStream).dict.lookup(PDFName.of('Width')) as PDFNumber).asNumber()
+    }
+    // 600 px over a 144 pt page is 300 dpi, so 300 px are kept; a quarter of the page must not call for fewer pixels than the whole one.
+    expect(await widthOf()).toBe(300)
+    expect(await widthOf({ x: 0, y: 0, w: 72, h: 48 })).toBe(300)
   })
 
   it('behaves as before without the option', async () => {

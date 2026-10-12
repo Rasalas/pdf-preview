@@ -15,6 +15,7 @@ import {
   type PDFPage,
 } from 'pdf-lib'
 import { toPageSpace, userSpaceMatrix } from '../model/annotations'
+import { cropRect } from '../model/crop'
 import { BASELINE, toReadingRect, type OcrPage } from '../model/ocr'
 import type { PageSize, Point, Rect, Rotation } from '../model/types'
 import { encodable } from './encodable'
@@ -46,12 +47,22 @@ export function wordMatrix(read: Rect, rotation: Rotation, size: PageSize): Matr
 export const squeeze = (target: number, natural: number) =>
   natural > 0 ? Math.min(MAX_SQUEEZE, Math.max(MIN_SQUEEZE, (100 * target) / natural)) : 100
 
+/** The lines with the words whose centre is inside the crop; text that is cropped away must not stay findable. */
+export function visibleLines(ocr: OcrPage, size: PageSize, crop: Rect | undefined): OcrPage['lines'] {
+  if (!crop) return ocr.lines
+  const shown = cropRect(size, crop)
+  const inside = (w: Rect) => w.x + w.w / 2 >= shown.x && w.x + w.w / 2 <= shown.x + shown.w && w.y + w.h / 2 >= shown.y && w.y + w.h / 2 <= shown.y + shown.h
+  return ocr.lines.map((line) => ({ words: line.words.filter(inside) })).filter((line) => line.words.length)
+}
+
 /**
  * Writes recognised words into the page as invisible text, so every viewer can search and select
- * them where they appear. `rotate` is the page's own /Rotate; `size` the source page.
+ * them where they appear. `rotate` is the page's own /Rotate; `size` the source page; words outside
+ * `crop` are left out. Positions do not depend on the crop, which only narrows the page's CropBox.
  */
-export function drawOcrText(doc: PDFDocument, page: PDFPage, rotate: number, ocr: OcrPage, size: PageSize, font: PDFFont) {
-  if (ocr.lines.length === 0) return
+export function drawOcrText(doc: PDFDocument, page: PDFPage, rotate: number, ocr: OcrPage, size: PageSize, font: PDFFont, crop?: Rect) {
+  const lines = visibleLines(ocr, size, crop)
+  if (lines.length === 0) return
   // Isolate existing content so its graphics and text state cannot leak into ours.
   page.node.normalize()
   const ctx = doc.context
@@ -65,7 +76,7 @@ export function drawOcrText(doc: PDFDocument, page: PDFPage, rotate: number, ocr
     concatTransformationMatrix(...userSpaceMatrix(rotate, page.getCropBox())),
     setTextRenderingMode(TextRenderingMode.Invisible),
   )
-  for (const line of ocr.lines) {
+  for (const line of lines) {
     page.pushOperators(beginText())
     line.words.forEach((word, i) => {
       const read = toReadingRect(word, size, ocr.rotation)

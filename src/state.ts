@@ -1,9 +1,10 @@
 import { sameValue, type FieldValue, type FieldValues } from './model/forms'
 import { commit, createHistory, redo, undo, type History } from './model/history'
 import { newId } from './model/ids'
+import { clampRect, normalizeCrop, sameCropFor } from './model/crop'
 import type { OcrPage, OcrResults } from './model/ocr'
-import { duplicatePages, insertPages, movePages, removePages, rotatePages } from './model/pages'
-import type { Annotation, Page, Source, Sources } from './model/types'
+import { cropPages, duplicatePages, insertPages, movePages, removePages, rotatePages } from './model/pages'
+import type { Annotation, Page, Rect, Source, Sources } from './model/types'
 
 export interface State {
   history: History<Page[]>
@@ -32,6 +33,8 @@ export type Action =
   | { type: 'nudge'; delta: -1 | 1 }
   | { type: 'rotate'; delta: number }
   | { type: 'duplicate' }
+  /** Crops a page (null shows all of it again); the pages in `also` get the same rectangle relative to their size. */
+  | { type: 'crop'; pageId: string; crop: Rect | null; also?: string[] }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'select'; id: string; mode: 'single' | 'toggle' | 'range' }
@@ -103,6 +106,21 @@ export function reducer(state: State, action: Action): State {
       if (selected.size === 0) return state
       const r = duplicatePages(pages, selected, newId)
       return withSelection(edit(state, r.pages), r.copies)
+    }
+    case 'crop': {
+      const from = pages.find((p) => p.id === action.pageId)
+      if (!from) return state
+      const sizeOf = (p: Page) => state.sources[p.sourceId].pages[p.index]
+      const base = action.crop && clampRect(action.crop, sizeOf(from))
+      const crops = new Map<string, Rect | undefined>()
+      for (const p of pages) {
+        if (p === from) crops.set(p.id, normalizeCrop(base, sizeOf(p)))
+        else if (action.also?.includes(p.id)) {
+          const view = (q: Page) => ({ size: sizeOf(q), rotation: q.rotation })
+          crops.set(p.id, base ? sameCropFor(base, view(from), view(p)) : undefined)
+        }
+      }
+      return edit(state, cropPages(pages, crops))
     }
     case 'undo':
     case 'redo': {

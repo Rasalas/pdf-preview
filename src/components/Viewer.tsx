@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { mergeLineRects, toPageSpace } from '../model/annotations'
+import { cropRect, displayedSize, visibleRect } from '../model/crop'
 import { newId } from '../model/ids'
 import { rotatedSize } from '../model/pages'
 import type { Annotation, Page, Point, Rect, Sources } from '../model/types'
 import type { Entered, FieldValue } from '../model/forms'
 import { AnnotationLayer, type Interaction, type MarkupStyle, type Signature, type Tool } from './AnnotationLayer'
+import { CropBar, CropOverlay } from './Crop'
 import { FormLayer } from './FormLayer'
 import { pageForm, type PageForm } from '../pdf/forms'
 import type { OcrPage, OcrResults } from '../model/ocr'
@@ -22,6 +24,8 @@ export interface ActiveHit {
 }
 
 const PX_PER_PT = 96 / 72
+/** Room kept for the crop bar below the page being cropped, in CSS pixels. */
+const CROP_BAR = 72
 
 interface Props {
   pages: Page[]
@@ -42,6 +46,17 @@ interface Props {
   padding?: number
   /** In fit mode, size every page to the width instead of the widest page (phones). */
   fitEach?: boolean
+  crop?: CropRequest | null
+  /** Applies the crop to the page being cropped, and to all `ids` if `all`; null removes it. */
+  onCrop?: (crop: Rect | null, all: boolean) => void
+  onCancelCrop?: () => void
+}
+
+/** The page being cropped. It is shown whole, with the current crop selected, until the crop is applied or cancelled. */
+export interface CropRequest {
+  pageId: string
+  /** The pages (this one included) a crop can apply to together. */
+  ids: string[]
 }
 
 export interface Forms {
@@ -65,28 +80,36 @@ export interface Markup {
   onRemove: (pageId: string, id: string) => void
 }
 
-export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup, forms, ocr, padding = 24, fitEach = false }: Props) {
+export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup, forms, ocr, padding = 24, fitEach = false, crop = null, onCrop, onCancelCrop }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const elements = useRef(new Map<string, HTMLDivElement>())
   const [width, setWidth] = useState(0)
+  const [height, setHeight] = useState(0)
+  // Tied to the request, so a new crop never starts from the last one's rectangle.
+  const [edit, setEdit] = useState<{ request: CropRequest; draft: Rect } | null>(null)
+  const cropPage = crop && pages.find((p) => p.id === crop.pageId)
+  const draft = !cropPage ? null : edit?.request === crop ? edit.draft : cropRect(sources[cropPage.sourceId].pages[cropPage.index], cropPage.crop)
   const ignoreScrollUntil = useRef(0)
   const anchor = useRef<{ id: string; ratio: number } | null>(null)
 
   useLayoutEffect(() => {
     const el = scroller.current!
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth))
+    const ro = new ResizeObserver(() => {
+      setWidth(el.clientWidth)
+      setHeight(el.clientHeight)
+    })
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
 
-  const widest = Math.max(1, ...pages.map((p) => rotatedSize(sources[p.sourceId].pages[p.index], p.rotation).width))
+  const widest = Math.max(1, ...pages.map((p) => displayedSize(sources[p.sourceId].pages[p.index], p).width))
   // Like Preview, fitting never enlarges beyond actual size.
   const scale = zoom === 'fit' ? Math.max(0.1, Math.min(1, (width - 2 * padding) / (widest * PX_PER_PT))) : zoom
   // With per-page fitting, zoom steps should start from the page being read.
   const currentPage = pages.find((p) => p.id === current)
   const reported =
     fitEach && zoom === 'fit' && currentPage
-      ? Math.max(0.1, (width - 2 * padding) / (rotatedSize(sources[currentPage.sourceId].pages[currentPage.index], currentPage.rotation).width * PX_PER_PT))
+      ? Math.max(0.1, (width - 2 * padding) / (displayedSize(sources[currentPage.sourceId].pages[currentPage.index], currentPage).width * PX_PER_PT))
       : scale
   useEffect(() => onScale(reported), [reported, onScale])
 
@@ -141,12 +164,12 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
 
   // Tapping the highlighter with text already selected highlights it right away.
   useEffect(() => {
-    if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, markup)
+    if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, markup, crop?.pageId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markup.tool, markup.highlightRequest])
 
   const onMouseUp = () => {
-    if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, markup)
+    if (markup.tool === 'highlight') highlightSelection(pages, sources, elements.current, markup, crop?.pageId)
   }
 
   return (
@@ -162,9 +185,15 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
     >
       <div className="viewer-pages" style={{ padding, gap: Math.min(16, padding) }}>
         {pages.map((page, i) => {
-          const size = rotatedSize(sources[page.sourceId].pages[page.index], page.rotation)
+          const cropEdit = draft && crop?.pageId === page.id ? { draft, onChange: (rect: Rect) => setEdit({ request: crop, draft: rect }) } : null
+          const size = displayedSize(sources[page.sourceId].pages[page.index], cropEdit ? { rotation: page.rotation } : page)
           // A single wide page (e.g. a photo) would otherwise shrink every A4 page on a phone.
-          const pageScale = fitEach && zoom === 'fit' ? Math.max(0.1, (width - 2 * padding) / (size.width * PX_PER_PT)) : scale
+          let pageScale = fitEach && zoom === 'fit' ? Math.max(0.1, (width - 2 * padding) / (size.width * PX_PER_PT)) : scale
+          // The page being cropped is shown whole, and as large as fits, so all its handles are in reach.
+          if (cropEdit && zoom === 'fit') {
+            const room = Math.min((width - 2 * padding) / size.width, (height - 2 * padding - CROP_BAR) / size.height)
+            pageScale = Math.min(pageScale, Math.max(0.1, room / PX_PER_PT))
+          }
           return (
             <ViewerPage
               key={page.id}
@@ -180,6 +209,7 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
               entered={forms.values[page.sourceId]}
               ocr={ocr[page.sourceId]?.[page.index]}
               onField={(name, value) => forms.onChange(page.sourceId, name, value)}
+              cropEdit={cropEdit}
               interaction={{
                 tool: markup.tool,
                 style: markup.style,
@@ -198,6 +228,18 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
             />
           )
         })}
+        {crop && cropPage && draft ? (
+          <div className="crop-dock" style={{ width, margin: `0 ${-padding}px` }}>
+            <CropBar
+              key={crop.pageId}
+              count={crop.ids.length}
+              hasCrop={!!cropPage.crop}
+              onApply={(all) => onCrop?.(draft, all)}
+              onReset={(all) => onCrop?.(null, all)}
+              onCancel={() => onCancelCrop?.()}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -217,12 +259,14 @@ interface PageProps {
   ocr: OcrPage | undefined
   onField: (name: string, value: FieldValue | null) => void
   interaction: Interaction
+  /** Set while the page is being cropped: it is laid out whole and its content is inert. */
+  cropEdit: { draft: Rect; onChange: (draft: Rect) => void } | null
   ref: (el: HTMLDivElement | null) => void
 }
 
 const NO_CANVASES = new Map<string, HTMLCanvasElement[]>()
 
-function ViewerPage({ page, sources, number, width, height, root, query, activeHit, scale, entered, ocr, onField, interaction, ref }: PageProps) {
+function ViewerPage({ page, sources, number, width, height, root, query, activeHit, scale, entered, ocr, onField, interaction, cropEdit, ref }: PageProps) {
   const box = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [near, setNear] = useState(false)
@@ -245,6 +289,15 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
 
   const source = sources[page.sourceId]
   const hasOcr = !!ocr
+  // Every layer is laid out for the whole page; the crop only moves and clips that box.
+  const sourceSize = source.pages[page.index]
+  const whole = rotatedSize(sourceSize, page.rotation)
+  const visible = visibleRect(sourceSize, cropEdit ? { rotation: page.rotation } : page)
+  const fullWidth = Math.round(whole.width * scale)
+  const [left, top] = [-Math.round(visible.x * scale), -Math.round(visible.y * scale)]
+  // Never smaller than the window it is seen through, so rounding leaves no gap at the far edges.
+  const content = { left, top, width: Math.max(fullWidth, width - left), height: Math.max(Math.round(whole.height * scale), height - top) }
+
   useEffect(() => {
     const c = canvas.current!
     if (!near) {
@@ -265,12 +318,12 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
       fields
         .then((f) => {
           if (!ctrl.signal.aborted) setForm(f?.interactive ? f : null)
-          return renderPage(c, source, page.index, page.rotation, width, ctrl.signal, f?.interactive ? { onCanvases: setCanvases } : undefined)
+          return renderPage(c, source, page.index, page.rotation, fullWidth, ctrl.signal, f?.interactive ? { onCanvases: setCanvases } : undefined)
         })
         .then(() => !ctrl.signal.aborted && setRendered(true))
         .catch((e) => console.error('Seite konnte nicht gezeichnet werden', e))
       if (source.kind === 'pdf' && !hasOcr) {
-        renderTextLayer(textBox.current!, source, page.index, page.rotation, width, ctrl.signal)
+        renderTextLayer(textBox.current!, source, page.index, page.rotation, fullWidth, ctrl.signal)
           .then((s) => !ctrl.signal.aborted && setSpans(s.map((span) => [span])))
           .catch((e) => console.error('Textebene fehlgeschlagen', e))
       }
@@ -280,12 +333,12 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
       ctrl.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [near, source, page.index, page.rotation, width, hasOcr])
+  }, [near, source, page.index, page.rotation, fullWidth, hasOcr])
 
   // Recognised text is placed from the page's own data, so it needs no render task.
   useEffect(() => {
-    if (near && ocr) setSpans(renderOcrLayer(textBox.current!, ocr, source.pages[page.index], page.rotation, width))
-  }, [near, ocr, source, page.index, page.rotation, width])
+    if (near && ocr) setSpans(renderOcrLayer(textBox.current!, ocr, source.pages[page.index], page.rotation, fullWidth))
+  }, [near, ocr, source, page.index, page.rotation, fullWidth])
 
   useEffect(() => {
     let n = 0
@@ -317,7 +370,8 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
     }
     if (active && activeHit && revealed.current !== activeHit.nonce) {
       revealed.current = activeHit.nonce
-      active.scrollIntoView({ block: 'center', inline: 'nearest' })
+      // Text outside the crop is hidden; the viewer has brought the page into view already.
+      if (!page.crop || isWithin(active, box.current!)) active.scrollIntoView({ block: 'center', inline: 'nearest' })
     }
   }, [spans, query, activeHit])
 
@@ -327,61 +381,74 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
         box.current = el
         ref(el)
       }}
-      className={`viewer-page${rendered ? '' : ' is-loading'}`}
+      className={`viewer-page${rendered ? '' : ' is-loading'}${page.crop && !cropEdit ? ' is-cropped' : ''}`}
       style={{ width, height }}
       aria-label={`Seite ${number}`}
     >
-      <canvas ref={canvas} />
-      <div ref={textBox} className="text-box" />
-      {form && rendered ? (
-        <FormLayer
-          form={form}
-          canvases={canvases}
-          scope={page.id}
+      <div className="page-content" style={content} inert={!!cropEdit}>
+        <canvas ref={canvas} />
+        <div ref={textBox} className="text-box" />
+        {form && rendered ? (
+          <FormLayer
+            form={form}
+            canvases={canvases}
+            scope={page.id}
+            rotation={page.rotation}
+            scale={scale}
+            entered={entered}
+            active={interaction.tool === 'select'}
+            crop={page.crop}
+            onChange={onField}
+          />
+        ) : null}
+        <AnnotationLayer
+          annotations={page.annotations ?? []}
+          size={source.pages[page.index]}
           rotation={page.rotation}
           scale={scale}
-          entered={entered}
-          active={interaction.tool === 'select'}
-          onChange={onField}
+          interaction={interaction}
         />
-      ) : null}
-      <AnnotationLayer
-        annotations={page.annotations ?? []}
-        size={source.pages[page.index]}
-        rotation={page.rotation}
-        scale={scale}
-        interaction={interaction}
-      />
+      </div>
+      {cropEdit ? <CropOverlay size={sourceSize} rotation={page.rotation} scale={scale} draft={cropEdit.draft} onChange={cropEdit.onChange} /> : null}
     </div>
   )
 }
 
-/** Turns the current text selection into one highlight per touched page. */
-function highlightSelection(pages: Page[], sources: Sources, elements: Map<string, HTMLDivElement>, markup: Markup) {
+/** Turns the current text selection into one highlight per touched page, except the page being cropped. */
+function highlightSelection(pages: Page[], sources: Sources, elements: Map<string, HTMLDivElement>, markup: Markup, skip?: string) {
   const selection = getSelection()
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return
   const clientRects = [...selection.getRangeAt(0).getClientRects()]
   for (const page of pages) {
     const el = elements.get(page.id)
-    if (!el) continue
+    if (!el || page.id === skip) continue
+    // The box shows the visible part; the content inside spans the whole page, which the rects are measured on.
     const box = el.getBoundingClientRect()
+    const whole = el.querySelector('.page-content')!.getBoundingClientRect()
     const size = sources[page.sourceId].pages[page.index]
     // Pages may be scaled individually, so derive the scale from this page's box.
-    const scale = box.width / rotatedSize(size, page.rotation).width
+    const scale = whole.width / rotatedSize(size, page.rotation).width
     const rects: Rect[] = []
     for (const c of clientRects) {
       const cx = c.left + c.width / 2
       const cy = c.top + c.height / 2
       // Element boxes in the range (like the text layer's end marker) are not text.
-      if (cx < box.left || cx > box.right || cy < box.top || cy > box.bottom || c.height > box.height * 0.15) continue
-      const a = toPageSpace([(c.left - box.left) / scale, (c.top - box.top) / scale], size, page.rotation)
-      const b = toPageSpace([(c.right - box.left) / scale, (c.bottom - box.top) / scale], size, page.rotation)
+      if (cx < box.left || cx > box.right || cy < box.top || cy > box.bottom || c.height > whole.height * 0.15) continue
+      const a = toPageSpace([(c.left - whole.left) / scale, (c.top - whole.top) / scale], size, page.rotation)
+      const b = toPageSpace([(c.right - whole.left) / scale, (c.bottom - whole.top) / scale], size, page.rotation)
       rects.push(rectOf(a, b))
     }
     const merged = mergeLineRects(rects)
     if (merged.length) markup.onAdd(page.id, { id: newId(), type: 'highlight', color: markup.highlightColor, rects: merged })
   }
   selection.removeAllRanges()
+}
+
+function isWithin(el: Element, box: Element): boolean {
+  const r = el.getBoundingClientRect()
+  const b = box.getBoundingClientRect()
+  const [x, y] = [r.left + r.width / 2, r.top + r.height / 2]
+  return x >= b.left && x <= b.right && y >= b.top && y <= b.bottom
 }
 
 function rectOf(a: Point, b: Point): Rect {

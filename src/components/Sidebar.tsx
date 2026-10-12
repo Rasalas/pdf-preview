@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'
+import { displayedSize, visibleRect } from '../model/crop'
 import { rotatedSize } from '../model/pages'
 import type { FieldValues } from '../model/forms'
 import type { Page, Sources } from '../model/types'
@@ -11,6 +12,8 @@ import { Icon } from './icons'
 import { PageHover, type PageActions } from './PageHover'
 
 export const PAGES_MIME = 'application/x-vorschau-pages'
+/** Widest thumbnail render in CSS pixels; a tight crop would otherwise ask for a huge canvas. */
+const MAX_RENDER = 1600
 
 interface Props {
   pages: Page[]
@@ -159,11 +162,16 @@ function Thumb({ page, sources, entered: enteredNow, number, width, selected, cu
   const [url, setUrl] = useState<string | null>(null)
   const source = sources[page.sourceId]
   const entered = useSettled(enteredNow, 500)
-  const size = rotatedSize(source.pages[page.index], page.rotation)
-  // Few distinct render widths, so resizing the sidebar mostly reuses cached thumbnails.
-  const renderWidth = Math.ceil(width / 80) * 80
+  const sourceSize = source.pages[page.index]
+  const size = displayedSize(sourceSize, page)
+  const whole = rotatedSize(sourceSize, page.rotation)
+  const shown = visibleRect(sourceSize, page)
   const boxW = size.width >= size.height ? width : (width * size.width) / size.height
   const boxH = (boxW * size.height) / size.width
+  const k = boxW / size.width
+  // Few distinct render widths, so resizing the sidebar mostly reuses cached thumbnails.
+  // The whole page is drawn and clipped, so a crop renders it larger; the cap spares memory.
+  const renderWidth = Math.min(MAX_RENDER, Math.ceil(((Math.ceil(width / 80) * 80) * (whole.width / size.width)) / 80) * 80)
 
   useEffect(() => {
     const io = new IntersectionObserver(([e]) => e.isIntersecting && setVisible(true), {
@@ -216,10 +224,14 @@ function Thumb({ page, sources, entered: enteredNow, number, width, selected, cu
       onDragEnd={onDragEnd}
     >
       <div className="thumb-frame" style={{ width: boxW, height: boxH }}>
-        {url ? <img src={url} alt="" draggable={false} /> : null}
-        {page.annotations?.length ? (
-          <AnnotationLayer annotations={page.annotations} size={source.pages[page.index]} rotation={page.rotation} scale={boxW / size.width} />
-        ) : null}
+        <div className="thumb-clip">
+          <div className="page-content" style={{ left: -shown.x * k, top: -shown.y * k, width: whole.width * k, height: whole.height * k }}>
+            {url ? <img src={url} alt="" draggable={false} /> : null}
+            {page.annotations?.length ? (
+              <AnnotationLayer annotations={page.annotations} size={sourceSize} rotation={page.rotation} scale={k} />
+            ) : null}
+          </div>
+        </div>
         {hits ? <span className="thumb-hits" aria-label={`${hits} Treffer`}>{hits}</span> : null}
       </div>
       <span className="thumb-number">{number}</span>

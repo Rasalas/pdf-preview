@@ -1,4 +1,4 @@
-import type { Page, PageSize, Rotation } from './types'
+import type { Page, PageSize, Rect, Rotation } from './types'
 
 export function insertPages(pages: Page[], added: Page[], at: number): Page[] {
   const i = clamp(at, 0, pages.length)
@@ -23,6 +23,19 @@ export function rotatePages(pages: Page[], ids: ReadonlySet<string>, delta: numb
   return pages.map((p) =>
     ids.has(p.id) ? { ...p, rotation: normalizeRotation(p.rotation + delta) } : p,
   )
+}
+
+/** Sets or, for undefined, clears the crop of the given pages. Returns the same list if nothing changes. */
+export function cropPages(pages: Page[], crops: ReadonlyMap<string, Rect | undefined>): Page[] {
+  const next = pages.map((p) => (crops.has(p.id) ? withCrop(p, crops.get(p.id)) : p))
+  return next.every((p, i) => p === pages[i]) ? pages : next
+}
+
+function withCrop(page: Page, crop: Rect | undefined): Page {
+  const old = page.crop
+  if (old === crop || (old && crop && old.x === crop.x && old.y === crop.y && old.w === crop.w && old.h === crop.h)) return page
+  const { crop: _, ...rest } = page
+  return crop ? { ...rest, crop } : rest
 }
 
 /** Inserts each copy directly after its original. Returns the new list and the ids of the copies. */

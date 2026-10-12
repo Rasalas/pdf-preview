@@ -177,3 +177,61 @@ describe('recognised text', () => {
     expect(run({ type: 'restore', title: 't', pages, sources: { a } }).ocr).toEqual({})
   })
 })
+
+describe('crop', () => {
+  const sized = (id: string, ...sizes: [number, number][]): Source => ({
+    ...source(id, 0),
+    pages: sizes.map(([width, height]) => ({ width, height })),
+  })
+  const rect = { x: 10, y: 20, w: 40, h: 80 }
+
+  it('crops a page as one undo step and keeps the crop in a duplicate', () => {
+    let s = run({ type: 'import', sources: [sized('a', [100, 200])], before: null })
+    const [page] = pagesOf(s)
+    s = reducer(s, { type: 'crop', pageId: page.id, crop: rect })
+    expect(pagesOf(s)[0].crop).toEqual(rect)
+    s = reducer(s, { type: 'duplicate' })
+    expect(pagesOf(s).map((p) => p.crop)).toEqual([rect, rect])
+    s = reducer(reducer(s, { type: 'undo' }), { type: 'undo' })
+    expect(pagesOf(s)[0].crop).toBeUndefined()
+    s = reducer(s, { type: 'redo' })
+    expect(pagesOf(s)[0].crop).toEqual(rect)
+  })
+
+  it('stores a crop that fits the page, and none for the whole page', () => {
+    let s = run({ type: 'import', sources: [sized('a', [100, 200])], before: null })
+    const [page] = pagesOf(s)
+    s = reducer(s, { type: 'crop', pageId: page.id, crop: { x: 90, y: 0, w: 50, h: 500 } })
+    expect(pagesOf(s)[0].crop).toEqual({ x: 50, y: 0, w: 50, h: 200 })
+    s = reducer(s, { type: 'crop', pageId: page.id, crop: { x: 0, y: 0, w: 100, h: 200 } })
+    expect(pagesOf(s)[0]).not.toHaveProperty('crop')
+  })
+
+  it('removes the crop with null and does not record a step when nothing changes', () => {
+    let s = run({ type: 'import', sources: [sized('a', [100, 200])], before: null })
+    const [page] = pagesOf(s)
+    const same = reducer(s, { type: 'crop', pageId: page.id, crop: null })
+    expect(same.history).toBe(s.history)
+    s = reducer(s, { type: 'crop', pageId: page.id, crop: rect })
+    s = reducer(s, { type: 'crop', pageId: page.id, crop: null })
+    expect(pagesOf(s)[0]).not.toHaveProperty('crop')
+    expect(s.history.past).toHaveLength(3)
+  })
+
+  it('gives other pages the same rectangle relative to their size', () => {
+    let s = run({ type: 'import', sources: [sized('a', [100, 200], [200, 400], [200, 100])], before: null })
+    const [p1, p2, p3] = pagesOf(s)
+    s = reducer(s, { type: 'rotate', delta: 90 })
+    s = reducer(s, { type: 'crop', pageId: p1.id, crop: rect, also: [p2.id] })
+    const [a, b, c] = pagesOf(s)
+    expect(a.crop).toEqual(rect)
+    expect(b.crop).toEqual({ x: 20, y: 40, w: 80, h: 160 })
+    expect(c.crop).toBeUndefined()
+    expect(c.id).toBe(p3.id)
+  })
+
+  it('ignores a page that is gone', () => {
+    const s = run({ type: 'import', sources: [sized('a', [100, 200])], before: null })
+    expect(reducer(s, { type: 'crop', pageId: 'nope', crop: rect })).toBe(s)
+  })
+})
