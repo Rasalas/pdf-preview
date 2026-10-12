@@ -1,3 +1,4 @@
+import { sameValue, type FieldValue, type FieldValues } from './model/forms'
 import { commit, createHistory, redo, undo, type History } from './model/history'
 import { newId } from './model/ids'
 import { duplicatePages, insertPages, movePages, removePages, rotatePages } from './model/pages'
@@ -6,6 +7,11 @@ import type { Annotation, Page, Source, Sources } from './model/types'
 export interface State {
   history: History<Page[]>
   sources: Sources
+  /**
+   * Form fields the user filled in. Kept out of the undo history on purpose: undoing a page
+   * operation must never take back typed text, and a field edit is no page edit.
+   */
+  fields: FieldValues
   selection: string[]
   anchor: string | null
   /** The page shown in the viewer. */
@@ -31,7 +37,9 @@ export type Action =
   | { type: 'step'; delta: number; extend: boolean }
   | { type: 'scrolledTo'; id: string }
   | { type: 'title'; title: string }
-  | { type: 'restore'; title: string; pages: Page[]; sources: Sources }
+  | { type: 'restore'; title: string; pages: Page[]; sources: Sources; fields?: FieldValues }
+  /** Sets a field of a source; a null value drops the entry so the field shows the PDF's value again. */
+  | { type: 'field'; sourceId: string; name: string; value: FieldValue | null }
   | { type: 'annotate'; pageId: string; annotation: Annotation; select?: boolean }
   | { type: 'updateAnnotation'; pageId: string; annotation: Annotation }
   | { type: 'removeAnnotation'; pageId: string; id: string }
@@ -40,6 +48,7 @@ export type Action =
 export const initialState: State = {
   history: createHistory<Page[]>([]),
   sources: {},
+  fields: {},
   selection: [],
   anchor: null,
   current: null,
@@ -148,12 +157,25 @@ export function reducer(state: State, action: Action): State {
     }
     case 'selectAnnotation':
       return { ...state, markup: action.target }
+    case 'field':
+      return setField(state, action.sourceId, action.name, action.value)
     case 'restore':
       return withSelection(
-        { ...initialState, sources: action.sources, title: action.title, history: createHistory(action.pages) },
+        { ...initialState, sources: action.sources, fields: action.fields ?? {}, title: action.title, history: createHistory(action.pages) },
         action.pages.slice(0, 1).map((p) => p.id),
       )
   }
+}
+
+function setField(state: State, sourceId: string, name: string, value: FieldValue | null): State {
+  const own = state.fields[sourceId] ?? {}
+  if (value === null ? !(name in own) : name in own && sameValue(own[name], value)) return state
+  const next = { ...own }
+  if (value === null) delete next[name]
+  else next[name] = value
+  const fields = { ...state.fields, [sourceId]: next }
+  if (Object.keys(next).length === 0) delete fields[sourceId]
+  return { ...state, fields }
 }
 
 function edit(state: State, pages: Page[]): State {

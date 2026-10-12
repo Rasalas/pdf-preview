@@ -15,6 +15,7 @@ Eine Web-App nach dem Vorbild der macOS-App Vorschau. Dateien werden ausschließ
 - **Zusammenstellen:** PDFs und Bilder hineinziehen, gezielt zwischen zwei Seiten einfügen, Seiten per Drag & Drop umsortieren, drehen, duplizieren, löschen und leere Seiten einfügen. Die Aktionen liegen an den Seiten selbst: Über einer Miniatur erscheinen Drehen, Löschen und „Mehr“, zwischen zwei Miniaturen ein „+“ zum Einfügen von Dateien oder einer leeren Seite, und am Ende der Liste die Kachel „Dateien hinzufügen“.
 - **Markieren:** Text hervorheben, frei zeichnen, Rechtecke, Ovale, Linien, Pfeile, Textfelder und die eigene Unterschrift. Alles lässt sich verschieben, skalieren und umfärben.
 - **Lesen:** Text auswählen und kopieren, im ganzen Dokument suchen, Treffer pro Seite in der Seitenleiste. Passwortgeschützte PDFs öffnen nach Eingabe des Passworts.
+- **Ausfüllen:** Formulare direkt in der App ausfüllen: Textfelder (auch mehrzeilig und als Kästchenreihe), Ankreuzfelder, Optionen, Auswahllisten. Ein Feld, das auf mehreren Seiten vorkommt, zeigt überall denselben Wert. Eingaben überstehen ein Neuladen und stehen beim Sichern und Drucken im PDF.
 - **Sichern:** als neues PDF oder nur die ausgewählten Seiten, außerdem Drucken. Originalseiten bleiben unverändert erhalten, Text bleibt durchsuchbar.
 - **Sicher arbeiten:** Widerrufen für jeden Schritt, und nach einem versehentlichen Neuladen lässt sich das Dokument wiederherstellen.
 
@@ -57,10 +58,11 @@ Die Apps sind noch nicht signiert. Unter macOS beim ersten Start in *Systemeinst
 | ⌘A | Alle Seiten auswählen |
 | ↑ ↓, ⇧↑ ⇧↓ | Seite wählen, Auswahl erweitern (in der Seitenleiste) |
 | ⌥↑ ⌥↓ | Auswahl verschieben (in der Seitenleiste) |
+| ⇥ / ⇧⇥, ↩ | Nächstes / vorheriges Formularfeld (↩ in Textfeldern: nächstes Feld) |
 | ⌘+ / ⌘− / ⌘0 | Zoom |
 | ⌥⌘S | Seitenleiste ein-/ausblenden |
 | ⇧⌘A | Markierungsleiste ein-/ausblenden |
-| Esc | Markierung abwählen |
+| Esc | Markierung abwählen, Formularfeld verlassen |
 
 Unter Windows und Linux gilt Strg statt ⌘.
 
@@ -73,8 +75,9 @@ Aktuelle Versionen von Chrome, Edge, Firefox und Safari (macOS und iPadOS). Gete
 - Geschützte PDFs werden beim Import entschlüsselt (RC4 40/128 Bit, AES-128, AES-256). Mit Öffnen-Passwort fragt die App danach; PDFs, die nur Einschränkungen wie „Drucken verboten“ tragen, öffnen ohne Abfrage. Die Einschränkungen gelten in der App nicht, und gesicherte Kopien sind weder passwortgeschützt noch eingeschränkt. Mit Zertifikat oder DRM geschützte PDFs lassen sich nicht öffnen.
 - Die Suche findet keine Begriffe, die in der PDF auf zwei Textstücke verteilt sind; Scans ohne Textebene sind nicht durchsuchbar.
 - Markierungen werden beim Sichern fest in den Seiteninhalt geschrieben und sind danach in anderen Programmen nicht mehr einzeln bearbeitbar.
-- Textfelder nutzen Helvetica; Zeichen außerhalb des westeuropäischen Zeichensatzes werden beim Sichern durch „?“ ersetzt.
-- Noch nicht umgesetzt: Formulare, Komprimieren, Texterkennung (OCR).
+- Textfelder und Formulareingaben nutzen Helvetica; Zeichen außerhalb des westeuropäischen Zeichensatzes werden beim Sichern durch „?“ ersetzt.
+- Formulare: Unterstützt sind PDF-Formulare nach AcroForm. XFA-Formulare, JavaScript in PDFs (Berechnungen, Prüfungen) und Signaturfelder fehlen. Gefüllt wird nur, solange kein Markierungswerkzeug aktiv ist. Beim Sichern und Drucken werden die Eingaben fest in die Seiten geschrieben, das Formular lässt sich danach nicht mehr ausfüllen. Kennwortfelder bleiben leer. „Widerrufen“ der App nimmt Eingaben nicht zurück (im Feld gilt das Widerrufen des Browsers), und die Suche findet sie nicht.
+- Noch nicht umgesetzt: Komprimieren, Texterkennung (OCR).
 
 ## Entwicklung
 

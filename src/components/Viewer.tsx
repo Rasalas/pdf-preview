@@ -3,7 +3,10 @@ import { mergeLineRects, toPageSpace } from '../model/annotations'
 import { newId } from '../model/ids'
 import { rotatedSize } from '../model/pages'
 import type { Annotation, Page, Point, Rect, Sources } from '../model/types'
+import type { Entered, FieldValue } from '../model/forms'
 import { AnnotationLayer, type Interaction, type MarkupStyle, type Signature, type Tool } from './AnnotationLayer'
+import { FormLayer } from './FormLayer'
+import { pageForm, type PageForm } from '../pdf/forms'
 import { renderPage, renderTextLayer } from '../pdf/pdfjs'
 import { matchRanges } from '../pdf/text'
 
@@ -30,10 +33,18 @@ interface Props {
   query: string
   activeHit: ActiveHit | null
   markup: Markup
+  forms: Forms
   /** Space around pages; small on phones so pages use the width. */
   padding?: number
   /** In fit mode, size every page to the width instead of the widest page (phones). */
   fitEach?: boolean
+}
+
+export interface Forms {
+  /** Entered values by source id, then field name. */
+  values: Record<string, Record<string, FieldValue>>
+  /** A null value goes back to what the PDF stores. */
+  onChange: (sourceId: string, name: string, value: FieldValue | null) => void
 }
 
 export interface Markup {
@@ -50,7 +61,7 @@ export interface Markup {
   onRemove: (pageId: string, id: string) => void
 }
 
-export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup, padding = 24, fitEach = false }: Props) {
+export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup, forms, padding = 24, fitEach = false }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const elements = useRef(new Map<string, HTMLDivElement>())
   const [width, setWidth] = useState(0)
@@ -162,6 +173,8 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
               query={query}
               activeHit={activeHit?.pageId === page.id ? activeHit : null}
               scale={pageScale * PX_PER_PT}
+              entered={forms.values[page.sourceId]}
+              onField={(name, value) => forms.onChange(page.sourceId, name, value)}
               interaction={{
                 tool: markup.tool,
                 style: markup.style,
@@ -195,17 +208,23 @@ interface PageProps {
   query: string
   activeHit: ActiveHit | null
   scale: number
+  entered: Entered
+  onField: (name: string, value: FieldValue | null) => void
   interaction: Interaction
   ref: (el: HTMLDivElement | null) => void
 }
 
-function ViewerPage({ page, sources, number, width, height, root, query, activeHit, scale, interaction, ref }: PageProps) {
+const NO_CANVASES = new Map<string, HTMLCanvasElement[]>()
+
+function ViewerPage({ page, sources, number, width, height, root, query, activeHit, scale, entered, onField, interaction, ref }: PageProps) {
   const box = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [near, setNear] = useState(false)
   const [rendered, setRendered] = useState(false)
   const textBox = useRef<HTMLDivElement>(null)
   const [spans, setSpans] = useState<HTMLElement[]>([])
+  const [form, setForm] = useState<PageForm | null>(null)
+  const [canvases, setCanvases] = useState(NO_CANVASES)
   const revealed = useRef(0)
 
   useEffect(() => {
@@ -226,12 +245,20 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
       textBox.current!.replaceChildren()
       setRendered(false)
       setSpans([])
+      setForm(null)
+      setCanvases(NO_CANVASES)
       return
     }
     const ctrl = new AbortController()
     // Debounced so that zooming with repeated key presses renders once.
     const t = setTimeout(() => {
-      renderPage(c, source, page.index, page.rotation, width, ctrl.signal)
+      // Pages with fields are drawn without them; the form layer provides those.
+      const fields = source.kind === 'pdf' ? pageForm(source, page.index).catch(() => null) : Promise.resolve(null)
+      fields
+        .then((f) => {
+          if (!ctrl.signal.aborted) setForm(f?.interactive ? f : null)
+          return renderPage(c, source, page.index, page.rotation, width, ctrl.signal, f?.interactive ? { onCanvases: setCanvases } : undefined)
+        })
         .then(() => !ctrl.signal.aborted && setRendered(true))
         .catch((e) => console.error('Seite konnte nicht gezeichnet werden', e))
       if (source.kind === 'pdf') {
@@ -288,6 +315,18 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
     >
       <canvas ref={canvas} />
       <div ref={textBox} className="text-box" />
+      {form && rendered ? (
+        <FormLayer
+          form={form}
+          canvases={canvases}
+          scope={page.id}
+          rotation={page.rotation}
+          scale={scale}
+          entered={entered}
+          active={interaction.tool === 'select'}
+          onChange={onField}
+        />
+      ) : null}
       <AnnotationLayer
         annotations={page.annotations ?? []}
         size={source.pages[page.index]}

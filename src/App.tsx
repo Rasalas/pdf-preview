@@ -118,9 +118,9 @@ export default function App() {
 
   useEffect(() => {
     if (!persisting) return
-    const t = setTimeout(() => saveSession(state.title, pages, state.sources), 800)
+    const t = setTimeout(() => saveSession(state.title, pages, state.sources, state.fields), 800)
     return () => clearTimeout(t)
-  }, [persisting, pages, state.title, state.sources])
+  }, [persisting, pages, state.title, state.sources, state.fields])
 
   // Show the pages an edit touched. Annotation edits leave the view where it is.
   const layoutKey = pages.map((p) => `${p.id}:${p.rotation}`).join()
@@ -262,7 +262,7 @@ export default function App() {
       const bytes = await buildPdf(list, state.sources, title, (done, total) => {
         if (cancelled) throw new DOMException('Abgebrochen', 'AbortError')
         setTask((t) => t && { ...t, progress: done / total })
-      })
+      }, state.fields)
       await download(bytes, `${title}${suffix}.pdf`)
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {
@@ -282,7 +282,7 @@ export default function App() {
     setTask({ label: 'Druck wird vorbereitet', progress: null })
     try {
       const { buildPdf } = await import('./pdf/export')
-      const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt')
+      const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt', undefined, state.fields)
       if (isDesktop) {
         const { openInSystemViewer } = await import('./desktop')
         await openInSystemViewer(bytes, `${state.title || 'Unbenannt'}.pdf`)
@@ -332,7 +332,7 @@ export default function App() {
 
   const restore = () => {
     if (!session) return
-    dispatch({ type: 'restore', title: session.title, pages: session.pages, sources: session.sources })
+    dispatch({ type: 'restore', title: session.title, pages: session.pages, sources: session.sources, fields: session.fields })
     setSession(null)
     setPersisting(true)
   }
@@ -495,8 +495,10 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       const t = e.target as HTMLElement
-      if (t.closest?.('input, textarea, [contenteditable]') || menu) return
       const mod = e.metaKey || e.ctrlKey
+      // In a form field only the document-wide shortcuts apply, so Backspace or ⌘A edit the field.
+      const fieldShortcut = t.closest?.('.form-layer') && mod && ['s', 'p', 'o', 'f'].includes(e.key.toLowerCase())
+      if ((t.closest?.('input, textarea, select, [contenteditable]') && !fieldShortcut) || menu) return
       const key = e.key.toLowerCase()
       const run = (fn: () => void) => {
         e.preventDefault()
@@ -805,6 +807,7 @@ export default function App() {
                 <Sidebar
                   pages={pages}
                   sources={state.sources}
+                  fields={state.fields}
                   selection={selection}
                   current={state.current}
                   width={186}
@@ -830,6 +833,7 @@ export default function App() {
                 <Sidebar
                   pages={pages}
                   sources={state.sources}
+                  fields={state.fields}
                   selection={selection}
                   current={state.current}
                   width={sidebarWidth}
@@ -855,6 +859,7 @@ export default function App() {
               query={hits.query === q ? q : ''}
               activeHit={activeHit}
               markup={markup}
+              forms={{ values: state.fields, onChange: (sourceId, name, value) => dispatch({ type: 'field', sourceId, name, value }) }}
               padding={compact ? 8 : 24}
               fitEach={compact}
             />

@@ -109,3 +109,47 @@ describe('annotations', () => {
     expect(pagesOf(s).map((p) => p.annotations?.length)).toEqual([1, 1])
   })
 })
+
+describe('form fields', () => {
+  const field = (sourceId: string, name: string, value: string | string[] | null): Action => ({ type: 'field', sourceId, name, value })
+
+  it('stores values per source and drops them again when set back to the original', () => {
+    let s = run({ type: 'import', sources: [source('a', 1)], before: null }, field('a', 'name', 'Eva'), field('a', 'tick', 'Yes'))
+    expect(s.fields).toEqual({ a: { name: 'Eva', tick: 'Yes' } })
+    s = reducer(reducer(s, field('a', 'name', null)), field('a', 'tick', null))
+    expect(s.fields).toEqual({})
+  })
+
+  it('keeps the same state for an unchanged value', () => {
+    const s = run(field('a', 'name', 'Eva'))
+    expect(reducer(s, field('a', 'name', 'Eva'))).toBe(s)
+    expect(reducer(s, field('a', 'other', null))).toBe(s)
+  })
+
+  it('is not part of the undo history: undoing page edits keeps typed values', () => {
+    let s = run({ type: 'import', sources: [source('a', 2)], before: null })
+    s = reducer(s, { type: 'rotate', delta: 90 })
+    s = reducer(s, field('a', 'name', 'Eva'))
+    s = reducer(s, { type: 'undo' })
+    expect(pagesOf(s)[0].rotation).toBe(0)
+    expect(s.fields).toEqual({ a: { name: 'Eva' } })
+    s = reducer(s, { type: 'redo' })
+    expect(s.fields).toEqual({ a: { name: 'Eva' } })
+    expect(s.history.past).toHaveLength(2)
+  })
+
+  it('survives deleting and restoring a page by undo', () => {
+    let s = run({ type: 'import', sources: [source('a', 1)], before: null }, field('a', 'name', 'Eva'), { type: 'selectAll' }, { type: 'remove' })
+    expect(pagesOf(s)).toHaveLength(0)
+    s = reducer(s, { type: 'undo' })
+    expect(s.fields.a.name).toBe('Eva')
+  })
+
+  it('restores stored sessions with and without fields', () => {
+    const a = source('a', 1)
+    const pages = [{ id: 'p', sourceId: 'a', index: 0, rotation: 0 as const }]
+    expect(run({ type: 'restore', title: 't', pages, sources: { a }, fields: { a: { x: 'y' } } }).fields).toEqual({ a: { x: 'y' } })
+    // Sessions saved before form support have no fields.
+    expect(run({ type: 'restore', title: 't', pages, sources: { a } }).fields).toEqual({})
+  })
+})

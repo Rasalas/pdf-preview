@@ -24,7 +24,10 @@ import {
   type PDFPage,
 } from 'pdf-lib'
 import { LINE_HEIGHT, TEXT_ASCENT, arrowHead, lineEnd, userSpaceMatrix } from '../model/annotations'
-import type { Annotation, Page, Point, Sources } from '../model/types'
+import type { FieldValue, FieldValues } from '../model/forms'
+import type { Annotation, Page, Point, Source, Sources } from '../model/types'
+import { encodable } from './encodable'
+import { fillForm } from './fill'
 
 const loaded = new Map<string, Promise<PDFDocument>>()
 
@@ -42,11 +45,22 @@ export function loadForExport(id: string, bytes: Uint8Array): Promise<PDFDocumen
   return doc
 }
 
+/** The source as a pdf-lib document, with the user's form entries written in and flattened if there are any. */
+async function documentFor(source: Source, entered: Record<string, FieldValue> | undefined): Promise<PDFDocument> {
+  if (!entered || Object.keys(entered).length === 0) return loadForExport(source.id, source.bytes!)
+  // Flattening changes the document, so it must not touch the cached one.
+  const doc = await PDFDocument.load(source.bytes!, { updateMetadata: false })
+  const skipped = await fillForm(doc, entered)
+  if (skipped.length) console.warn(`Felder in „${source.name}“ nicht übernommen:`, skipped)
+  return doc
+}
+
 export async function buildPdf(
   pages: Page[],
   sources: Sources,
   title: string,
   onProgress?: (done: number, total: number) => void,
+  fields: FieldValues = {},
 ): Promise<Uint8Array> {
   const out = await PDFDocument.create()
   out.setTitle(title)
@@ -59,7 +73,7 @@ export async function buildPdf(
     const source = sources[sourceId]
     if (source.kind !== 'pdf' || !source.bytes) continue
     const own = pages.filter((p) => p.sourceId === sourceId)
-    const doc = await loadForExport(source.id, source.bytes)
+    const doc = await documentFor(source, fields[source.id])
     const copies = await out.copyPages(doc, own.map((p) => p.index))
     own.forEach((p, i) => copied.set(p, copies[i]))
   }
@@ -172,18 +186,4 @@ function strokePath(page: PDFPage, paths: Point[][], color: ReturnType<typeof rg
     ops.push(moveTo(...points[0]), ...points.slice(1).map((p) => lineTo(...p)))
   }
   page.pushOperators(pushGraphicsState(), ...ops, stroke(), popGraphicsState())
-}
-
-/** The standard Helvetica only covers WinAnsi; replace what it cannot encode instead of failing the export. */
-function encodable(font: PDFFont, text: string): string {
-  return [...text]
-    .map((ch) => {
-      try {
-        font.encodeText(ch)
-        return ch
-      } catch {
-        return '?'
-      }
-    })
-    .join('')
 }
