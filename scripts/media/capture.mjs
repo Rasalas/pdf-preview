@@ -278,6 +278,8 @@ async function settle(page, thumbs) {
 async function shot(page, name) {
   // Park the pointer in the toolbar, or the hovered thumbnail shows its page actions.
   if (page.viewportSize().width > 820) await page.mouse.move(640, 26)
+  // Notes such as the hint that the photo page has no text would cover the shot.
+  for (const close of await page.locator('.toast button[aria-label="Schließen"]').all()) await close.click()
   await page.screenshot({ path: join(out, `${name}.png`) })
   console.log(`docs/media/${name}.png`)
 }
