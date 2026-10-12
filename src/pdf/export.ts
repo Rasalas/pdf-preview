@@ -20,11 +20,11 @@ import {
   setStrokingRgbColor,
   stroke,
   type PDFFont,
-  type PDFImage,
   type PDFPage,
 } from 'pdf-lib'
 import { LINE_HEIGHT, TEXT_ASCENT, arrowHead, lineEnd, userSpaceMatrix } from '../model/annotations'
 import type { Annotation, Page, Point, Sources } from '../model/types'
+import { drawImage, embedImage, type EmbeddedImage } from './images'
 
 const loaded = new Map<string, Promise<PDFDocument>>()
 
@@ -61,7 +61,7 @@ export async function buildPdf(
     own.forEach((p, i) => copied.set(p, copies[i]))
   }
 
-  const images = new Map<string, PDFImage>()
+  const images = new Map<string, EmbeddedImage>()
   let font: PDFFont | undefined
   const getFont = async () => (font ??= await out.embedFont(StandardFonts.Helvetica))
   for (const [i, page] of pages.entries()) {
@@ -77,10 +77,10 @@ export async function buildPdf(
       if (source.kind === 'image' && source.bytes) {
         let image = images.get(source.id)
         if (!image) {
-          image = source.mime === 'image/png' ? await out.embedPng(source.bytes) : await out.embedJpg(source.bytes)
+          image = await embedImage(out, source)
           images.set(source.id, image)
         }
-        pdfPage.drawImage(image, { x: 0, y: 0, width, height })
+        drawImage(pdfPage, image, width, height)
       }
       if (page.annotations?.length) await drawAnnotations(out, pdfPage, 0, page.annotations, getFont)
       pdfPage.setRotation(degrees(page.rotation))
