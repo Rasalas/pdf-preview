@@ -14,7 +14,7 @@ Eine Web-App nach dem Vorbild der macOS-App Vorschau. Dateien werden ausschließ
 
 - **Zusammenstellen:** PDFs und Bilder hineinziehen, gezielt zwischen zwei Seiten einfügen, Seiten per Drag & Drop umsortieren, drehen, duplizieren, löschen und leere Seiten einfügen.
 - **Markieren:** Text hervorheben, frei zeichnen, Rechtecke, Ovale, Linien, Pfeile, Textfelder und die eigene Unterschrift. Alles lässt sich verschieben, skalieren und umfärben.
-- **Lesen:** Text auswählen und kopieren, im ganzen Dokument suchen, Treffer pro Seite in der Seitenleiste.
+- **Lesen:** Text auswählen und kopieren, im ganzen Dokument suchen, Treffer pro Seite in der Seitenleiste. Passwortgeschützte PDFs öffnen nach Eingabe des Passworts.
 - **Sichern:** als neues PDF oder nur die ausgewählten Seiten, außerdem Drucken. Originalseiten bleiben unverändert erhalten, Text bleibt durchsuchbar.
 - **Sicher arbeiten:** Widerrufen für jeden Schritt, und nach einem versehentlichen Neuladen lässt sich das Dokument wiederherstellen.
 
@@ -39,7 +39,7 @@ Die Apps sind noch nicht signiert. Unter macOS beim ersten Start in *Systemeinst
 
 ## Datenschutz
 
-Öffnen, Bearbeiten und Sichern passieren vollständig im Browser; Dateien werden nirgends hochgeladen. Das zuletzt bearbeitete Dokument und gezeichnete Unterschriften liegen nur lokal im Browser (IndexedDB bzw. `localStorage`) und lassen sich dort jederzeit verwerfen. Beim Aufruf der Seite verarbeitet allein der jeweilige Hoster technisch notwendige Daten; die App nennt ihn unter „Über und Datenschutz“.
+Öffnen, Bearbeiten und Sichern passieren vollständig im Browser; Dateien werden nirgends hochgeladen. Das zuletzt bearbeitete Dokument und gezeichnete Unterschriften liegen nur lokal im Browser (IndexedDB bzw. `localStorage`) und lassen sich dort jederzeit verwerfen. Passwörter für geschützte PDFs werden nur zum Entschlüsseln im Browser verwendet und nicht gespeichert; das Dokument selbst liegt danach wie jedes andere unverschlüsselt in der lokalen Sitzung. Beim Aufruf der Seite verarbeitet allein der jeweilige Hoster technisch notwendige Daten; die App nennt ihn unter „Über und Datenschutz“.
 
 ## Tastenkürzel
 
@@ -70,7 +70,7 @@ Aktuelle Versionen von Chrome, Edge, Firefox und Safari (macOS und iPadOS). Gete
 
 ## Bekannte Grenzen
 
-- Verschlüsselte PDFs werden beim Import abgelehnt.
+- Geschützte PDFs werden beim Import entschlüsselt (RC4 40/128 Bit, AES-128, AES-256). Mit Öffnen-Passwort fragt die App danach; PDFs, die nur Einschränkungen wie „Drucken verboten“ tragen, öffnen ohne Abfrage. Die Einschränkungen gelten in der App nicht, und gesicherte Kopien sind weder passwortgeschützt noch eingeschränkt. Mit Zertifikat oder DRM geschützte PDFs lassen sich nicht öffnen.
 - Die Suche findet keine Begriffe, die in der PDF auf zwei Textstücke verteilt sind; Scans ohne Textebene sind nicht durchsuchbar.
 - Markierungen werden beim Sichern fest in den Seiteninhalt geschrieben und sind danach in anderen Programmen nicht mehr einzeln bearbeitbar.
 - Textfelder nutzen Helvetica; Zeichen außerhalb des westeuropäischen Zeichensatzes werden beim Sichern durch „?“ ersetzt.
@@ -104,4 +104,4 @@ Die Builds unterscheiden sich nur in den Angaben zu Hoster, Datenschutz und Impr
 
 ## Lizenz
 
-[MIT](LICENSE) © Torben Buck. Verwendet [pdf.js](https://mozilla.github.io/pdf.js/) (Apache 2.0) und [pdf-lib](https://pdf-lib.js.org/) (MIT).
+[MIT](LICENSE) © Torben Buck. Verwendet [pdf.js](https://mozilla.github.io/pdf.js/) (Apache 2.0), [pdf-lib](https://pdf-lib.js.org/) (MIT) und, nur zum Entsperren geschützter PDFs, [qpdf](https://qpdf.sourceforge.io/) (Apache 2.0) als WebAssembly über [@neslinesli93/qpdf-wasm](https://github.com/neslinesli93/qpdf-wasm) (ISC).

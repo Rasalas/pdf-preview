@@ -317,6 +317,7 @@ button { font: inherit; color: inherit; }
   border-left: 3px solid var(--danger);
   animation: toast-in 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
+.toast.is-note { border-left-color: var(--accent); }
 .toast span { flex: 1; }
 .toast button { border: 0; background: none; color: var(--text-2); padding: 2px; display: grid; }
 @keyframes toast-in { from { transform: translateY(12px); opacity: 0; } }
@@ -530,6 +531,10 @@ button { font: inherit; color: inherit; }
 .signature-baseline { stroke: #c8c7c2; stroke-width: 1; stroke-dasharray: 4 4; }
 .dialog-actions { display: flex; gap: 8px; margin-top: 14px; }
 .dialog-actions > span { flex: 1; }
+.password { width: min(400px, calc(100vw - 32px)); }
+.password input { display: block; width: 100%; height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: var(--control); color: var(--text); font: inherit; box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.password input[aria-invalid='true'] { box-shadow: inset 0 0 0 1px var(--danger); }
+.password .password-error { margin: 8px 0 0; color: var(--danger); }
 
 /* About */
 .about { position: relative; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
@@ -698,4 +703,6 @@ button { font: inherit; color: inherit; }
   .signature-pad { height: 180px; }
   .dialog-actions { flex-wrap: wrap; }
   .dialog-actions .button { min-height: 44px; }
+  .password { width: calc(100vw - 16px); }
+  .password input { height: 44px; font-size: 16px; }
 }

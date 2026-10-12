@@ -4,6 +4,7 @@ import { AboutDialog } from './components/AboutDialog'
 import { BottomBar } from './components/BottomBar'
 import { EmptyState } from './components/EmptyState'
 import { MarkupBar } from './components/MarkupBar'
+import { PasswordDialog } from './components/PasswordDialog'
 import { SignatureDialog } from './components/SignatureDialog'
 import { Icon, type IconName } from './components/icons'
 import { Menu, type MenuItem } from './components/Menu'
@@ -33,6 +34,14 @@ interface Task {
 interface Toast {
   id: number
   text: string
+  note?: boolean
+}
+
+interface PasswordRequest {
+  id: number
+  name: string
+  wrong: boolean
+  answer: (password: string | null) => void
 }
 
 export default function App() {
@@ -54,6 +63,7 @@ export default function App() {
   const [selecting, setSelecting] = useState(false)
   const [task, setTask] = useState<Task | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [dropping, setDropping] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -85,9 +95,9 @@ export default function App() {
   const searchInput = useRef<HTMLInputElement>(null)
   const q = normalizeQuery(query)
 
-  const toast = useCallback((text: string) => {
+  const toast = useCallback((text: string, note = false) => {
     const id = Date.now() + Math.random()
-    setToasts((t) => [...t, { id, text }])
+    setToasts((t) => [...t, { id, text, note }])
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 7000)
   }, [])
 
@@ -198,11 +208,16 @@ export default function App() {
         cancel,
       })
       try {
-        sources.push(await importFile(file))
+        const source = await importFile(file, {
+          askPassword: ({ name, wrong }) => new Promise((answer) => setPasswordRequest({ id: Math.random(), name, wrong, answer })),
+          notify: (text) => toast(text, true),
+        })
+        if (source) sources.push(source)
       } catch (e) {
         console.error(e)
         toast(e instanceof ImportError ? e.message : `„${file.name}“ konnte nicht importiert werden.`)
       } finally {
+        setPasswordRequest(null)
         queued.current--
         processed++
       }
@@ -869,6 +884,10 @@ export default function App() {
 
       {about ? <AboutDialog onClose={() => setAbout(false)} /> : null}
 
+      {passwordRequest ? (
+        <PasswordDialog key={passwordRequest.id} name={passwordRequest.name} wrong={passwordRequest.wrong} onAnswer={passwordRequest.answer} />
+      ) : null}
+
       {signatureDialog ? (
         <SignatureDialog
           onClose={() => setSignatureDialog(false)}
@@ -886,7 +905,7 @@ export default function App() {
 
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className="toast">
+          <div key={t.id} className={`toast${t.note ? ' is-note' : ''}`}>
             <span>{t.text}</span>
             <button aria-label="Schließen" onClick={() => setToasts((all) => all.filter((x) => x.id !== t.id))}>
               <Icon name="close" width={14} height={14} />
