@@ -1,6 +1,7 @@
 import { sameValue, type FieldValue, type FieldValues } from './model/forms'
 import { commit, createHistory, redo, undo, type History } from './model/history'
 import { newId } from './model/ids'
+import type { OcrPage, OcrResults } from './model/ocr'
 import { duplicatePages, insertPages, movePages, removePages, rotatePages } from './model/pages'
 import type { Annotation, Page, Source, Sources } from './model/types'
 
@@ -12,6 +13,8 @@ export interface State {
    * operation must never take back typed text, and a field edit is no page edit.
    */
   fields: FieldValues
+  /** Text read from scans, by source page. Outside the history for the same reason as `fields`. */
+  ocr: OcrResults
   selection: string[]
   anchor: string | null
   /** The page shown in the viewer. */
@@ -37,7 +40,8 @@ export type Action =
   | { type: 'step'; delta: number; extend: boolean }
   | { type: 'scrolledTo'; id: string }
   | { type: 'title'; title: string }
-  | { type: 'restore'; title: string; pages: Page[]; sources: Sources; fields?: FieldValues }
+  | { type: 'restore'; title: string; pages: Page[]; sources: Sources; fields?: FieldValues; ocr?: OcrResults }
+  | { type: 'ocr'; sourceId: string; index: number; page: OcrPage }
   /** Sets a field of a source; a null value drops the entry so the field shows the PDF's value again. */
   | { type: 'field'; sourceId: string; name: string; value: FieldValue | null }
   | { type: 'annotate'; pageId: string; annotation: Annotation; select?: boolean }
@@ -49,6 +53,7 @@ export const initialState: State = {
   history: createHistory<Page[]>([]),
   sources: {},
   fields: {},
+  ocr: {},
   selection: [],
   anchor: null,
   current: null,
@@ -159,9 +164,11 @@ export function reducer(state: State, action: Action): State {
       return { ...state, markup: action.target }
     case 'field':
       return setField(state, action.sourceId, action.name, action.value)
+    case 'ocr':
+      return { ...state, ocr: { ...state.ocr, [action.sourceId]: { ...state.ocr[action.sourceId], [action.index]: action.page } } }
     case 'restore':
       return withSelection(
-        { ...initialState, sources: action.sources, fields: action.fields ?? {}, title: action.title, history: createHistory(action.pages) },
+        { ...initialState, sources: action.sources, fields: action.fields ?? {}, ocr: action.ocr ?? {}, title: action.title, history: createHistory(action.pages) },
         action.pages.slice(0, 1).map((p) => p.id),
       )
   }

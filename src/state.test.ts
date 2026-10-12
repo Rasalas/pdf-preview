@@ -153,3 +153,27 @@ describe('form fields', () => {
     expect(run({ type: 'restore', title: 't', pages, sources: { a } }).fields).toEqual({})
   })
 })
+
+describe('recognised text', () => {
+  const read = (rotation: 0 | 90 = 0) => ({ rotation, lines: [{ words: [{ text: 'Hallo', x: 1, y: 2, w: 3, h: 4 }] }] })
+
+  it('belongs to the source page, so copies share it, and stays out of the undo history', () => {
+    let s = run({ type: 'import', sources: [source('a', 2)], before: null }, { type: 'selectAll' }, { type: 'duplicate' })
+    expect(pagesOf(s)).toHaveLength(4)
+    s = reducer(s, { type: 'ocr', sourceId: 'a', index: 1, page: read() })
+    expect(Object.keys(s.ocr.a)).toEqual(['1'])
+    s = reducer(s, { type: 'undo' })
+    expect(pagesOf(s)).toHaveLength(2)
+    expect(s.ocr.a[1].lines).toHaveLength(1)
+    // Reading a page again replaces the result.
+    expect(reducer(s, { type: 'ocr', sourceId: 'a', index: 1, page: read(90) }).ocr.a[1].rotation).toBe(90)
+  })
+
+  it('restores stored sessions with and without it', () => {
+    const a = source('a', 1)
+    const pages = [{ id: 'p', sourceId: 'a', index: 0, rotation: 0 as const }]
+    expect(run({ type: 'restore', title: 't', pages, sources: { a }, ocr: { a: { 0: read() } } }).ocr.a[0].lines).toHaveLength(1)
+    // Sessions saved before text recognition have none.
+    expect(run({ type: 'restore', title: 't', pages, sources: { a } }).ocr).toEqual({})
+  })
+})

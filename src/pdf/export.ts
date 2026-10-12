@@ -25,11 +25,13 @@ import {
 } from 'pdf-lib'
 import { LINE_HEIGHT, TEXT_ASCENT, arrowHead, lineEnd, userSpaceMatrix } from '../model/annotations'
 import type { FieldValue, FieldValues } from '../model/forms'
+import type { OcrResults } from '../model/ocr'
 import type { Annotation, Page, Point, Source, Sources } from '../model/types'
 import { collectImages, compressImages, subProgress, type CompressStats } from './compress'
 import { encodable } from './encodable'
 import { fillForm } from './fill'
 import { drawImage, embedImage, type EmbeddedImage } from './images'
+import { drawOcrText } from './ocr-text'
 
 const loaded = new Map<string, Promise<PDFDocument>>()
 
@@ -60,6 +62,8 @@ async function documentFor(source: Source, entered: Record<string, FieldValue> |
 export interface BuildOptions {
   /** Form entries per source, written into the pages. */
   fields?: FieldValues
+  /** Recognised text per source page, written into the pages as invisible text. */
+  ocr?: OcrResults
   /** Downsample and recompress images; text, fonts and vector graphics stay as they are. */
   compress?: boolean
   /** Receives what compression achieved just before the bytes are returned. */
@@ -100,6 +104,8 @@ export async function buildPdf(
       const pdfPage = out.addPage(copied.get(page)!)
       const own = pdfPage.getRotation().angle
       if (page.annotations?.length) await drawAnnotations(out, pdfPage, own, page.annotations, getFont)
+      const read = options.ocr?.[source.id]?.[page.index]
+      if (read?.lines.length) drawOcrText(out, pdfPage, own, read, source.pages[page.index], await getFont())
       pdfPage.setRotation(degrees((own + page.rotation) % 360))
     } else {
       const { width, height } = source.pages[page.index]
@@ -113,6 +119,8 @@ export async function buildPdf(
         drawImage(pdfPage, image, width, height)
       }
       if (page.annotations?.length) await drawAnnotations(out, pdfPage, 0, page.annotations, getFont)
+      const read = options.ocr?.[source.id]?.[page.index]
+      if (read?.lines.length) drawOcrText(out, pdfPage, 0, read, source.pages[page.index], await getFont())
       pdfPage.setRotation(degrees(page.rotation))
     }
     reportPage?.(i + 1, pages.length)
