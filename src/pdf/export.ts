@@ -25,8 +25,9 @@ import {
 } from 'pdf-lib'
 import { LINE_HEIGHT, TEXT_ASCENT, arrowHead, lineEnd, userSpaceMatrix } from '../model/annotations'
 import type { FieldValue, FieldValues } from '../model/forms'
-import type { Annotation, Page, Point, Source, Sources } from '../model/types'
+import type { Annotation, Page, Point, Rect, Source, Sources } from '../model/types'
 import { collectImages, compressImages, subProgress, type CompressStats } from './compress'
+import { applyCrop } from './crop'
 import { encodable } from './encodable'
 import { fillForm } from './fill'
 import { drawImage, embedImage, type EmbeddedImage } from './images'
@@ -92,6 +93,7 @@ export async function buildPdf(
   }
 
   const images = new Map<string, EmbeddedImage>()
+  const cropped: { page: PDFPage; rotate: number; crop: Rect }[] = []
   let font: PDFFont | undefined
   const getFont = async () => (font ??= await out.embedFont(StandardFonts.Helvetica))
   for (const [i, page] of pages.entries()) {
@@ -101,6 +103,7 @@ export async function buildPdf(
       const own = pdfPage.getRotation().angle
       if (page.annotations?.length) await drawAnnotations(out, pdfPage, own, page.annotations, getFont)
       pdfPage.setRotation(degrees((own + page.rotation) % 360))
+      if (page.crop) cropped.push({ page: pdfPage, rotate: own, crop: page.crop })
     } else {
       const { width, height } = source.pages[page.index]
       const pdfPage = out.addPage([width, height])
@@ -114,6 +117,7 @@ export async function buildPdf(
       }
       if (page.annotations?.length) await drawAnnotations(out, pdfPage, 0, page.annotations, getFont)
       pdfPage.setRotation(degrees(page.rotation))
+      if (page.crop) cropped.push({ page: pdfPage, rotate: 0, crop: page.crop })
     }
     reportPage?.(i + 1, pages.length)
   }
@@ -122,6 +126,8 @@ export async function buildPdf(
     await out.flush()
     options.onCompressed?.(await compressImages(out, collectImages(out.getPages()), subProgress(onProgress, 0.1, 1)))
   }
+  // Last, so compression still sizes images by the whole page, which they keep covering.
+  for (const { page, rotate, crop } of cropped) applyCrop(page, rotate, crop)
   return out.save()
 }
 
