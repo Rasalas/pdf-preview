@@ -116,7 +116,7 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
           Dateien hinzufügen
         </button>
       ) : null}
-      {hoverable ? <PageHover root={list} pages={pages} selection={selection} actions={actions!} suspended={dragging || gap !== null} /> : null}
+      {hoverable ? <PageHover root={list} pages={pages} actions={actions!} suspended={dragging || gap !== null} /> : null}
     </div>
   )
 }

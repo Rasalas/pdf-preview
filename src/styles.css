@@ -200,7 +200,7 @@ button { font: inherit; color: inherit; }
   border-radius: 8px;
   background: var(--chrome-solid);
   box-shadow: var(--pill-shadow);
-  transform: translate(-50%, calc(-100% - 6px));
+  transform: translate(-50%, 6px);
   animation: fade-in 0.12s 0.04s both;
   user-select: none;
 }

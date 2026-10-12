@@ -417,9 +417,10 @@ export default function App() {
     { label: 'Leere Seite hier einfügen', run: () => insertBlank(at) },
   ]
 
-  /** A page's hover actions work on the selection when the page is part of it, else on the page alone. */
+  // Buttons on a page act on that page alone: after an import every new page is selected,
+  // and rotating one page must not turn all of them. "Mehr" works on the selection like the context menu.
   const onHoveredPage = (id: string, action: Action) => {
-    if (!selection.has(id)) dispatch({ type: 'select', id, mode: 'single' })
+    dispatch({ type: 'select', id, mode: 'single' })
     dispatch(action)
   }
 

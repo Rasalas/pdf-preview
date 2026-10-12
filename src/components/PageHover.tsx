@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Page } from '../model/types'
-import { actionTitle, gapNear, type PageAction } from './hover'
+import { gapNear } from './hover'
 import { Icon, type IconName } from './icons'
 
 /** What the pointer is on: a page, or the gap with this index. */
@@ -22,7 +22,6 @@ interface Props {
   /** The scrolling list the overlays are positioned in. */
   root: RefObject<HTMLDivElement | null>
   pages: Page[]
-  selection: ReadonlySet<string>
   actions: PageActions
   /** Nothing shows while pages or files are being dragged. */
   suspended: boolean
@@ -32,7 +31,7 @@ interface Props {
 const REST = 150
 
 /** Page actions over the thumbnail the pointer is on, and a "+" in the gap it rests in. */
-export function PageHover({ root, pages, selection, actions, suspended }: Props) {
+export function PageHover({ root, pages, actions, suspended }: Props) {
   const [spot, setSpot] = useState<Spot | null>(null)
   const [at, setAt] = useState<{ x: number; y: number } | null>(null)
   const pagesRef = useRef(pages)
@@ -124,13 +123,11 @@ export function PageHover({ root, pages, selection, actions, suspended }: Props)
   }
 
   const id = shown.page
-  const count = selection.has(id) ? selection.size : 1
-  const title = (action: PageAction, shortcut: string) => `${actionTitle(action, count)} (${shortcut})`
   return (
     <div key={id} className="hover-ui thumb-actions" role="group" aria-label="Seitenaktionen" style={{ left: at.x, top: at.y }} onMouseDown={keepFocus}>
-      <ActionButton icon="rotateLeft" label={title('rotateLeft', `${actions.mod}L`)} onClick={() => actions.onRotate(id, -90)} />
-      <ActionButton icon="rotateRight" label={title('rotateRight', `${actions.mod}R`)} onClick={() => actions.onRotate(id, 90)} />
-      <ActionButton icon="trash" danger label={title('remove', '⌫')} onClick={() => actions.onRemove(id)} />
+      <ActionButton icon="rotateLeft" label={`Nach links drehen (${actions.mod}L)`} onClick={() => actions.onRotate(id, -90)} />
+      <ActionButton icon="rotateRight" label={`Nach rechts drehen (${actions.mod}R)`} onClick={() => actions.onRotate(id, 90)} />
+      <ActionButton icon="trash" danger label="Seite löschen (⌫)" onClick={() => actions.onRemove(id)} />
       <ActionButton icon="more" label="Mehr" menu onClick={(e) => actions.onMore(id, e.currentTarget.getBoundingClientRect())} />
     </div>
   )
@@ -177,7 +174,8 @@ function anchorOf(root: HTMLElement, spot: Spot): { x: number; y: number } | nul
   const place = (x: number, y: number) => ({ x: Math.round(x - box.left + root.scrollLeft), y: Math.round(y - box.top + root.scrollTop) })
   if ('page' in spot) {
     const frame = root.querySelector(`[data-id="${spot.page}"] .thumb-frame`)?.getBoundingClientRect()
-    return frame ? place(frame.left + frame.width / 2, frame.bottom) : null
+    // The top edge stays put when a rotation changes the frame's height, so repeated clicks hit.
+    return frame ? place(frame.left + frame.width / 2, frame.top) : null
   }
   const thumbs = root.querySelectorAll('.thumb')
   const list = root.querySelector('.page-list')?.getBoundingClientRect()
