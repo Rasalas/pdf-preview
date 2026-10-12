@@ -124,7 +124,9 @@ export async function buildPdf(
   if (options.compress) {
     // Images of image sources are only embedded on flush.
     await out.flush()
-    options.onCompressed?.(await compressImages(out, collectImages(out.getPages()), subProgress(onProgress, 0.1, 1)))
+    // Not inside the optional call, which would skip compressing without a callback.
+    const stats = await compressImages(out, collectImages(out.getPages()), subProgress(onProgress, 0.1, 1))
+    options.onCompressed?.(stats)
   }
   // Last, so compression still sizes images by the whole page, which they keep covering.
   for (const { page, rotate, crop } of cropped) applyCrop(page, rotate, crop)

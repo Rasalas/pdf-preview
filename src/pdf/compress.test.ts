@@ -635,12 +635,13 @@ describe('buildPdf with compress', () => {
     const photo = await imageSource('photo')
     const widthOf = async (crop?: Rect) => {
       const pages: Page[] = [{ id: '1', sourceId: 'photo', index: 0, rotation: 0, crop }]
-      const out = await PDFDocument.load(await buildPdf(pages, { photo }, 'Test', undefined, { compress: true, onCompressed: () => {} }))
+      const out = await PDFDocument.load(await buildPdf(pages, { photo }, 'Test', undefined, { compress: true }))
       const [, image] = out.context.enumerateIndirectObjects().find(([, o]) => o instanceof PDFRawStream && o.dict.lookup(PDFName.of('Subtype')) === PDFName.of('Image'))!
       return ((image as PDFRawStream).dict.lookup(PDFName.of('Width')) as PDFNumber).asNumber()
     }
     // 600 px over a 144 pt page is 300 dpi, so 300 px are kept; a quarter of the page must not call for fewer pixels than the whole one.
-    expect(await widthOf({ x: 0, y: 0, w: 72, h: 48 })).toBe(await widthOf())
+    expect(await widthOf()).toBe(300)
+    expect(await widthOf({ x: 0, y: 0, w: 72, h: 48 })).toBe(300)
   })
 
   it('behaves as before without the option', async () => {
