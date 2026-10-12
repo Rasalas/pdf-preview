@@ -87,7 +87,7 @@ async function unlock(file: File, bytes: Uint8Array, { askPassword, notify }: Im
       notify?.(
         password
           ? `„${file.name}“ ist entsperrt. Gesicherte Kopien sind nicht mehr passwortgeschützt.`
-          : `„${file.name}“ war geschützt, ließ sich aber ohne Passwort öffnen. Gesicherte Kopien sind nicht geschützt.`,
+          : `„${file.name}“ hat Nutzungsbeschränkungen, etwa gegen Drucken. Gesicherte Kopien enthalten sie nicht mehr.`,
       )
       return plain
     } catch (e) {
