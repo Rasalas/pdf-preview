@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { rotationTransform } from '../model/annotations'
+import { intersects, rawCrop } from '../model/crop'
 import {
   click,
   fontSizeOf,
@@ -15,7 +16,7 @@ import {
   type TextWidget,
   type Widget,
 } from '../model/forms'
-import type { Rotation } from '../model/types'
+import type { Rect, Rotation } from '../model/types'
 import type { PageForm } from '../pdf/forms'
 import { FONT } from './AnnotationLayer'
 
@@ -32,6 +33,8 @@ interface Props {
   entered: Entered
   /** Fields only take input while no markup tool is in use. */
   active: boolean
+  /** The visible part of the page; fields outside it are left out, so focus can never move to them. */
+  crop?: Rect
   onChange: (name: string, value: FieldValue | null) => void
 }
 
@@ -48,16 +51,18 @@ const CONTROLS = '.form-layer .form-widget:not(.is-readonly) :is(input, textarea
  * HTML inputs over a page, laid out in the page's own unrotated space and turned with it,
  * like the markup layer, so they line up at every zoom level and rotation.
  */
-export function FormLayer({ form, canvases, scope, rotation, scale, entered, active, onChange }: Props) {
+export function FormLayer({ form, canvases, scope, rotation, scale, entered, active, crop, onChange }: Props) {
   const turn = ((form.rotate + rotation) % 360) as Rotation
   const { raw } = form
+  const visible = crop ? rawCrop(crop, raw, form.rotate) : null
+  const widgets = visible ? form.widgets.filter((w) => intersects(w.rect, visible)) : form.widgets
   return (
     <div
       className="form-layer"
       inert={!active}
       style={{ width: raw.width * scale, height: raw.height * scale, transform: rotationTransform(raw, turn, scale) }}
     >
-      {form.widgets.map((w) => (
+      {widgets.map((w) => (
         <Field
           key={w.id}
           w={w}

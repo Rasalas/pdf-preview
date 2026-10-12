@@ -642,6 +642,86 @@ select.form-input.is-list { padding-inline: 0; }
 }
 .thumb-frame .ann-layer { z-index: 1; }
 
+/* Cropping: every layer of a page sits in .page-content, which a crop only moves and clips. */
+.page-content { position: absolute; }
+.viewer-page.is-cropped, .thumb-clip { overflow: clip; }
+.thumb-clip { position: absolute; inset: 0; }
+.crop-overlay { position: absolute; inset: 0; z-index: 3; pointer-events: none; user-select: none; -webkit-user-select: none; --crop-inset: 0px; }
+/* Clips the dimming; the handles may reach over the page's edge. */
+.crop-dim { position: absolute; inset: 0; overflow: clip; }
+.crop-rect {
+  position: absolute;
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 0.5);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+}
+.crop-handle {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  touch-action: none;
+}
+.crop-handle::before {
+  content: '';
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+@media (hover: hover) { .crop-handle:hover::before { background: var(--accent-soft); } }
+.crop-handle:focus-visible { outline: none; }
+.crop-handle:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 2px; }
+.crop-handle:is(.is-n, .is-s) { cursor: ns-resize; }
+.crop-handle:is(.is-e, .is-w) { cursor: ew-resize; }
+.crop-handle:is(.is-nw, .is-se) { cursor: nwse-resize; }
+.crop-handle:is(.is-ne, .is-sw) { cursor: nesw-resize; }
+/* Stays at the foot of the visible area, whatever the zoom or the page. */
+.crop-dock {
+  position: sticky;
+  left: 0;
+  bottom: 16px;
+  z-index: 6;
+  align-self: flex-start;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.crop-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  max-width: calc(100% - 16px);
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--chrome-solid);
+  box-shadow: var(--pill-shadow);
+  pointer-events: auto;
+}
+.crop-all { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
+.crop-all input { margin: 0; accent-color: var(--accent); }
+.crop-actions { display: flex; gap: 6px; }
+@media (pointer: coarse) {
+  .crop-overlay { --crop-inset: 14px; }
+  .crop-handle { width: 44px; height: 44px; }
+  .crop-handle::before { width: 18px; height: 18px; }
+  .crop-all input { width: 22px; height: 22px; }
+}
+
 /* Dialog */
 .dialog {
   width: min(560px, calc(100vw - 32px));

@@ -10,9 +10,9 @@ import { Icon, type IconName } from './components/icons'
 import { Menu, type MenuItem } from './components/Menu'
 import type { PageActions } from './components/PageHover'
 import { PAGES_MIME, Sidebar } from './components/Sidebar'
-import { Viewer, type ActiveHit, type Markup, type Zoom } from './components/Viewer'
-import { rotatedSize } from './model/pages'
-import type { Page } from './model/types'
+import { Viewer, type ActiveHit, type CropRequest, type Markup, type Zoom } from './components/Viewer'
+import { displayedSize } from './model/crop'
+import type { Page, Rect } from './model/types'
 import type { CompressStats } from './pdf/compress'
 import { A4, ACCEPT, ImportError, blankSource, importFile } from './pdf/import'
 import { countMatches, normalizeQuery, pageStrings } from './pdf/text'
@@ -47,8 +47,8 @@ interface PasswordRequest {
 }
 
 type MenuState = { x: number; y: number } & (
-  /** `from` is the page whose hover actions opened it. */
-  | { kind: 'page'; from?: string }
+  /** `from` is the page whose hover actions opened it, `on` the page of a context menu. */
+  | { kind: 'page'; from?: string; on?: string }
   | { kind: 'gap'; at: number }
   | { kind: 'document' | 'more' }
 )
@@ -70,6 +70,7 @@ export default function App() {
   const compact = useMedia(COMPACT)
   const [searchOpen, setSearchOpen] = useState(false)
   const [selecting, setSelecting] = useState(false)
+  const [cropping, setCropping] = useState<CropRequest | null>(null)
   const [task, setTask] = useState<Task | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null)
@@ -124,7 +125,7 @@ export default function App() {
   }, [persisting, pages, state.title, state.sources, state.fields])
 
   // Show the pages an edit touched. Annotation edits leave the view where it is.
-  const layoutKey = pages.map((p) => `${p.id}:${p.rotation}`).join()
+  const layoutKey = pages.map((p) => `${p.id}:${p.rotation}:${p.crop ? Object.values(p.crop) : ''}`).join()
   useEffect(() => setScrollRequest((n) => n + 1), [layoutKey])
 
   useEffect(() => {
@@ -250,7 +251,7 @@ export default function App() {
     const size = ref ? state.sources[ref.sourceId].pages[ref.index] : A4
     setSession(null)
     setPersisting(true)
-    dispatch({ type: 'import', sources: [blankSource(ref ? rotatedSize(size, ref.rotation) : A4)], before: pages[at]?.id ?? null })
+    dispatch({ type: 'import', sources: [blankSource(ref ? displayedSize(size, ref) : A4)], before: pages[at]?.id ?? null })
   }
 
   const exportPdf = async (list: Page[], suffix = '', compress = false) => {
@@ -352,6 +353,33 @@ export default function App() {
     clearSession()
   }
 
+  const beginCrop = (pageId: string, ids: string[]) => {
+    dispatch({ type: 'scrolledTo', id: pageId })
+    setCropping({ pageId, ids })
+    setScrollRequest((n) => n + 1)
+  }
+
+  const endCrop = () => {
+    if (cropping) dispatch({ type: 'scrolledTo', id: cropping.pageId })
+    setCropping(null)
+    setScrollRequest((n) => n + 1)
+  }
+
+  const applyCrop = (crop: Rect | null, all: boolean) => {
+    if (cropping) dispatch({ type: 'crop', pageId: cropping.pageId, crop, also: all ? cropping.ids : [] })
+    endCrop()
+  }
+
+  // The page the menu was opened on, or else the one being read; the other selected pages can share the crop.
+  const startCrop = (on?: string) => {
+    const id = [on, state.current].find((p) => p && selection.has(p)) ?? state.selection[0]
+    if (id) beginCrop(id, state.selection)
+  }
+
+  useEffect(() => {
+    if (cropping && !pages.some((p) => p.id === cropping.pageId)) setCropping(null)
+  }, [cropping, pages])
+
   const selectedAnnotation = state.markup ? findAnnotation(pages, state.markup) : undefined
   const selectedKind = !selectedAnnotation
     ? null
@@ -421,6 +449,7 @@ export default function App() {
     { label: 'Nach links drehen', shortcut: `${MOD}L`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: -90 }) },
     { label: 'Nach rechts drehen', shortcut: `${MOD}R`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: 90 }) },
     { label: 'Duplizieren', shortcut: `${MOD}D`, disabled: !has, run: () => dispatch({ type: 'duplicate' }) },
+    { label: 'Beschneiden …', shortcut: `${MOD}K`, disabled: !has, run: () => startCrop(menu?.kind === 'page' ? (menu.from ?? menu.on) : undefined) },
     'separator',
     { label: 'Dateien danach einfügen …', run: () => openFiles() },
     { label: 'Leere Seite danach einfügen', run: () => insertBlank() },
@@ -433,7 +462,7 @@ export default function App() {
   const onThumbContextMenu = (e: MouseEvent, id: string) => {
     e.preventDefault()
     if (!selection.has(id)) dispatch({ type: 'select', id, mode: 'single' })
-    setMenu({ x: e.clientX, y: e.clientY, kind: 'page' })
+    setMenu({ x: e.clientX, y: e.clientY, kind: 'page', on: id })
   }
 
   const gapMenu = (at: number): MenuItem[] => [
@@ -492,6 +521,7 @@ export default function App() {
     { label: 'Wiederholen', disabled: !canRedo, run: () => dispatch({ type: 'redo' }) },
     { label: 'Nach links drehen', disabled: !state.current, run: () => onVisiblePage({ type: 'rotate', delta: -90 }) },
     { label: 'Duplizieren', disabled: !state.current, run: () => onVisiblePage({ type: 'duplicate' }) },
+    { label: 'Beschneiden …', disabled: !state.current, run: () => state.current && beginCrop(state.current, [state.current]) },
     { label: 'Leere Seite danach einfügen', run: () => insertBlank(currentIndex + 1) },
     'separator',
     { label: 'Vergrößern', run: () => zoomBy(1) },
@@ -514,6 +544,8 @@ export default function App() {
         e.preventDefault()
         fn()
       }
+      // While cropping, Return and Escape belong to the crop bar and page shortcuts must not change the pages.
+      if (cropping && !(mod && ['+', '=', '-', '0'].includes(key))) return
       if (mod && e.shiftKey && key === 'a') return run(() => setMarkupOpen((o) => !o))
       if (e.key === 'Escape' && state.markup) return run(() => dispatch({ type: 'selectAnnotation', target: null }))
       if (e.key === 'Escape' && tool !== 'select') return run(() => setTool('select'))
@@ -531,6 +563,7 @@ export default function App() {
       if (mod && key === 'p') return run(print)
       if (mod && key === 'a') return run(() => dispatch({ type: 'selectAll' }))
       if (mod && key === 'd') return run(() => dispatch({ type: 'duplicate' }))
+      if (mod && key === 'k') return run(() => has && startCrop())
       if (mod && key === 'r') return run(() => dispatch({ type: 'rotate', delta: 90 }))
       if (mod && key === 'l') return run(() => dispatch({ type: 'rotate', delta: -90 }))
       if (mod && (key === '+' || key === '=')) return run(() => zoomBy(1))
@@ -872,6 +905,9 @@ export default function App() {
               forms={{ values: state.fields, onChange: (sourceId, name, value) => dispatch({ type: 'field', sourceId, name, value }) }}
               padding={compact ? 8 : 24}
               fitEach={compact}
+              crop={cropping}
+              onCrop={applyCrop}
+              onCancelCrop={endCrop}
             />
           </>
         )}
