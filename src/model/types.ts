@@ -43,6 +43,11 @@ export interface Page {
   index: number
   rotation: Rotation
   annotations?: Annotation[]
+  /**
+   * The visible part of the page, in the same space as annotations (points, own /Rotate applied,
+   * before the user's rotation, origin top-left). Missing means the whole page.
+   */
+  crop?: Rect
 }
 
 export type Sources = Record<string, Source>

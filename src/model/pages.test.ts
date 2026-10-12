@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { duplicatePages, insertPages, movePages, normalizeRotation, removePages, rotatePages } from './pages'
+import { cropPages, duplicatePages, insertPages, movePages, normalizeRotation, removePages, rotatePages } from './pages'
 import type { Page } from './types'
 
 const doc = (...ids: string[]): Page[] => ids.map((id, index) => ({ id, sourceId: 's', index, rotation: 0 }))
@@ -43,5 +43,27 @@ describe('page operations', () => {
     const r = duplicatePages(doc('a', 'b', 'c'), new Set(['a', 'c']), () => `${++n}`)
     expect(ids(r.pages)).toBe('a1bc2')
     expect(r.copies).toEqual(['1', '2'])
+  })
+  it('copies the crop with a duplicate', () => {
+    const pages = cropPages(doc('a'), new Map([['a', { x: 1, y: 2, w: 30, h: 40 }]]))
+    const r = duplicatePages(pages, new Set(['a']), () => 'b')
+    expect(r.pages.map((p) => p.crop)).toEqual([{ x: 1, y: 2, w: 30, h: 40 }, { x: 1, y: 2, w: 30, h: 40 }])
+  })
+})
+
+describe('cropPages', () => {
+  const rect = { x: 1, y: 2, w: 30, h: 40 }
+  it('sets and clears the crop of the given pages only', () => {
+    const cropped = cropPages(doc('a', 'b'), new Map([['b', rect]]))
+    expect(cropped.map((p) => p.crop)).toEqual([undefined, rect])
+    const cleared = cropPages(cropped, new Map([['b', undefined]]))
+    expect(cleared[1]).not.toHaveProperty('crop')
+  })
+  it('returns the same list when nothing changes', () => {
+    const pages = cropPages(doc('a'), new Map([['a', rect]]))
+    expect(cropPages(pages, new Map([['a', { ...rect }]]))).toBe(pages)
+    expect(cropPages(doc('a'), new Map([['a', undefined]]))).toHaveLength(1)
+    const plain = doc('a')
+    expect(cropPages(plain, new Map([['a', undefined]]))).toBe(plain)
   })
 })
