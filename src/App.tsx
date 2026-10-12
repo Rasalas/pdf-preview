@@ -13,6 +13,8 @@ import { PAGES_MIME, Sidebar } from './components/Sidebar'
 import { Viewer, type ActiveHit, type Markup, type Zoom } from './components/Viewer'
 import { rotatedSize } from './model/pages'
 import type { Page } from './model/types'
+import { isScan } from './ocr/scans'
+import { useRecognition } from './ocr/useRecognition'
 import type { CompressStats } from './pdf/compress'
 import { A4, ACCEPT, ImportError, blankSource, importFile } from './pdf/import'
 import { countMatches, normalizeQuery, pageStrings } from './pdf/text'
@@ -37,6 +39,7 @@ interface Toast {
   id: number
   text: string
   note?: boolean
+  action?: { label: string; run: () => void }
 }
 
 interface PasswordRequest {
@@ -99,16 +102,25 @@ export default function App() {
   useEffect(() => localStorage.setItem('signatures', JSON.stringify(signatures)), [signatures])
 
   const [query, setQuery] = useState('')
-  const [hits, setHits] = useState<{ query: string; pages: Map<string, number>; done: boolean }>({ query: '', pages: new Map(), done: true })
+  const [hits, setHits] = useState<{ query: string; pages: Map<string, number>; scans: string[]; done: boolean }>({ query: '', pages: new Map(), scans: [], done: true })
   const [activeHit, setActiveHit] = useState<ActiveHit | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const q = normalizeQuery(query)
 
-  const toast = useCallback((text: string, note = false) => {
+  const toast = useCallback((text: string, note = false, action?: Toast['action']) => {
     const id = Date.now() + Math.random()
-    setToasts((t) => [...t, { id, text, note }])
+    setToasts((t) => [...t, { id, text, note, action }])
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 7000)
   }, [])
+
+  // An offer to start something has served its purpose once something runs.
+  useEffect(() => {
+    if (task) setToasts((all) => all.filter((t) => !t.action))
+  }, [task])
+
+  const recognise = useRecognition({ sources: state.sources, ocr: state.ocr, dispatch, setTask, toast })
+  const recogniseRef = useRef(recognise)
+  recogniseRef.current = recognise
 
   useEffect(() => {
     loadSession().then((s) => {
@@ -119,9 +131,9 @@ export default function App() {
 
   useEffect(() => {
     if (!persisting) return
-    const t = setTimeout(() => saveSession(state.title, pages, state.sources, state.fields), 800)
+    const t = setTimeout(() => saveSession(state.title, pages, state.sources, state.fields, state.ocr), 800)
     return () => clearTimeout(t)
-  }, [persisting, pages, state.title, state.sources, state.fields])
+  }, [persisting, pages, state.title, state.sources, state.fields, state.ocr])
 
   // Show the pages an edit touched. Annotation edits leave the view where it is.
   const layoutKey = pages.map((p) => `${p.id}:${p.rotation}`).join()
@@ -131,33 +143,56 @@ export default function App() {
     document.title = pages.length ? `${state.title || 'Unbenannt'} – Vorschau` : 'Vorschau'
   }, [pages.length, state.title])
 
+  useEffect(() => setActiveHit(null), [q, pages, state.sources])
+
+  // Also runs when text is recognised, without taking the user off the hit they are on.
   useEffect(() => {
-    setActiveHit(null)
     if (!q) {
-      setHits({ query: '', pages: new Map(), done: true })
+      setHits({ query: '', pages: new Map(), scans: [], done: true })
       return
     }
     let live = true
     const t = setTimeout(async () => {
       const found = new Map<string, number>()
+      const scans: string[] = []
       for (const [i, page] of pages.entries()) {
         let n = 0
         try {
-          n = countMatches(await pageStrings(state.sources[page.sourceId], page.index), q)
+          const source = state.sources[page.sourceId]
+          const read = state.ocr[page.sourceId]?.[page.index]
+          const items = await pageStrings(source, page.index, read)
+          n = countMatches(items, q)
+          if (isScan(source, !!read, items)) scans.push(page.id)
         } catch (e) {
           console.error(e)
         }
         if (!live) return
         if (n) found.set(page.id, n)
-        if (i % 25 === 24) setHits({ query: q, pages: new Map(found), done: false })
+        if (i % 25 === 24) setHits({ query: q, pages: new Map(found), scans: [...scans], done: false })
       }
-      setHits({ query: q, pages: found, done: true })
+      setHits({ query: q, pages: found, scans, done: true })
     }, 150)
     return () => {
       live = false
       clearTimeout(t)
     }
-  }, [q, pages, state.sources])
+  }, [q, pages, state.sources, state.ocr])
+
+  // Once per search, say that scans without text were left out.
+  const scansNoted = useRef(false)
+  useEffect(() => {
+    if (!q) scansNoted.current = false
+    if (!hits.done || hits.query !== q || hits.scans.length === 0 || scansNoted.current) return
+    scansNoted.current = true
+    const n = hits.scans.length
+    const scanPages = pagesRef.current.filter((p) => hits.scans.includes(p.id))
+    toast(
+      `${n === 1 ? 'Eine Seite ist ein Scan ohne Text und wird' : `${n} Seiten sind Scans ohne Text und werden`} bei der Suche übergangen.`,
+      true,
+      { label: 'Text erkennen', run: () => recogniseRef.current(scanPages) },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hits, q])
 
   const hitOrder = useMemo(
     () => pages.flatMap((p) => Array.from({ length: hits.pages.get(p.id) ?? 0 }, (_, n) => ({ pageId: p.id, n }))),
@@ -269,7 +304,7 @@ export default function App() {
           if (cancelled) throw new DOMException('Abgebrochen', 'AbortError')
           setTask((t) => t && { ...t, progress: done / total })
         },
-        { fields: state.fields, compress, onCompressed: (s) => (stats = s) },
+        { fields: state.fields, ocr: state.ocr, compress, onCompressed: (s) => (stats = s) },
       )
       await download(bytes, `${title}${suffix}.pdf`)
       if (stats) toast(savingsMessage(bytes.length, stats), true)
@@ -291,7 +326,7 @@ export default function App() {
     setTask({ label: 'Druck wird vorbereitet', progress: null })
     try {
       const { buildPdf } = await import('./pdf/export')
-      const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt', undefined, { fields: state.fields })
+      const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt', undefined, { fields: state.fields, ocr: state.ocr })
       if (isDesktop) {
         const { openInSystemViewer } = await import('./desktop')
         await openInSystemViewer(bytes, `${state.title || 'Unbenannt'}.pdf`)
@@ -341,7 +376,7 @@ export default function App() {
 
   const restore = () => {
     if (!session) return
-    dispatch({ type: 'restore', title: session.title, pages: session.pages, sources: session.sources, fields: session.fields })
+    dispatch({ type: 'restore', title: session.title, pages: session.pages, sources: session.sources, fields: session.fields, ocr: session.ocr })
     setSession(null)
     setPersisting(true)
   }
@@ -421,6 +456,7 @@ export default function App() {
     { label: 'Nach links drehen', shortcut: `${MOD}L`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: -90 }) },
     { label: 'Nach rechts drehen', shortcut: `${MOD}R`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: 90 }) },
     { label: 'Duplizieren', shortcut: `${MOD}D`, disabled: !has, run: () => dispatch({ type: 'duplicate' }) },
+    { label: 'Text erkennen …', disabled: !has || !!task, run: () => recognise(selectedPages) },
     'separator',
     { label: 'Dateien danach einfügen …', run: () => openFiles() },
     { label: 'Leere Seite danach einfügen', run: () => insertBlank() },
@@ -469,6 +505,8 @@ export default function App() {
     { label: `Auswahl sichern (${count}) …`, disabled: !has || count === pages.length, run: () => exportPdf(selectedPages, ' – Auswahl') },
     { label: 'Drucken …', shortcut: `${MOD}P`, disabled: !pages.length, run: print },
     'separator',
+    { label: 'Text erkennen …', disabled: !pages.length || !!task, run: () => recognise(pages) },
+    'separator',
     { label: 'Dateien einfügen …', shortcut: `${MOD}O`, run: () => openFiles() },
     { label: 'Leere Seite einfügen', run: () => insertBlank() },
     'separator',
@@ -492,6 +530,7 @@ export default function App() {
     { label: 'Wiederholen', disabled: !canRedo, run: () => dispatch({ type: 'redo' }) },
     { label: 'Nach links drehen', disabled: !state.current, run: () => onVisiblePage({ type: 'rotate', delta: -90 }) },
     { label: 'Duplizieren', disabled: !state.current, run: () => onVisiblePage({ type: 'duplicate' }) },
+    { label: 'Text erkennen …', disabled: !state.current || !!task, run: () => recognise(pages.filter((p) => p.id === state.current)) },
     { label: 'Leere Seite danach einfügen', run: () => insertBlank(currentIndex + 1) },
     'separator',
     { label: 'Vergrößern', run: () => zoomBy(1) },
@@ -670,6 +709,16 @@ export default function App() {
             ? hits.done && hits.query === q ? 'Keine Treffer' : '…'
             : `${activeIndex + 1 || '–'} / ${hitOrder.length}${hits.done ? '' : '+'}`}
         </span>
+      ) : null}
+      {q && hits.done && hits.query === q && hits.scans.length && !task ? (
+        <button
+          className="search-scan"
+          title={`${hits.scans.length === 1 ? 'Eine Seite ist ein Scan' : `${hits.scans.length} Seiten sind Scans`} ohne Text – Text erkennen …`}
+          aria-label="Text auf Scans ohne Text erkennen"
+          onClick={() => recognise(pages.filter((p) => hits.scans.includes(p.id)))}
+        >
+          <Icon name="scanText" width={15} />
+        </button>
       ) : null}
     </div>
   )
@@ -870,6 +919,7 @@ export default function App() {
               activeHit={activeHit}
               markup={markup}
               forms={{ values: state.fields, onChange: (sourceId, name, value) => dispatch({ type: 'field', sourceId, name, value }) }}
+              ocr={state.ocr}
               padding={compact ? 8 : 24}
               fitEach={compact}
             />
@@ -950,6 +1000,17 @@ export default function App() {
         {toasts.map((t) => (
           <div key={t.id} className={`toast${t.note ? ' is-note' : ''}`}>
             <span>{t.text}</span>
+            {t.action ? (
+              <button
+                className="toast-action"
+                onClick={() => {
+                  setToasts((all) => all.filter((x) => x.id !== t.id))
+                  t.action!.run()
+                }}
+              >
+                {t.action.label}
+              </button>
+            ) : null}
             <button aria-label="Schließen" onClick={() => setToasts((all) => all.filter((x) => x.id !== t.id))}>
               <Icon name="close" width={14} height={14} />
             </button>

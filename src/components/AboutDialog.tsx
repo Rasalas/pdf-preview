@@ -26,8 +26,8 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
       <h3>Datenschutz</h3>
       <p>
         Deine Dateien verlassen dieses Gerät nicht: Öffnen, Bearbeiten und Sichern passieren vollständig im Browser.
-        Es gibt keine Cookies, kein Tracking und keine Konten. Das zuletzt bearbeitete Dokument und gezeichnete
-        Unterschriften werden nur lokal in diesem Browser gespeichert.
+        Es gibt keine Cookies, kein Tracking und keine Konten. Das zuletzt bearbeitete Dokument samt erkanntem Text
+        und gezeichnete Unterschriften werden nur lokal in diesem Browser gespeichert.
       </p>
       {deployment.host ? (
         <p>

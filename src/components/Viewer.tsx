@@ -7,8 +7,10 @@ import type { Entered, FieldValue } from '../model/forms'
 import { AnnotationLayer, type Interaction, type MarkupStyle, type Signature, type Tool } from './AnnotationLayer'
 import { FormLayer } from './FormLayer'
 import { pageForm, type PageForm } from '../pdf/forms'
+import type { OcrPage, OcrResults } from '../model/ocr'
+import { renderOcrLayer } from '../ocr/layer'
 import { renderPage, renderTextLayer } from '../pdf/pdfjs'
-import { matchRanges } from '../pdf/text'
+import { matchPieces } from '../pdf/text'
 
 export type Zoom = 'fit' | number
 
@@ -34,6 +36,8 @@ interface Props {
   activeHit: ActiveHit | null
   markup: Markup
   forms: Forms
+  /** Text read from scans; it takes the place of a page's own text. */
+  ocr: OcrResults
   /** Space around pages; small on phones so pages use the width. */
   padding?: number
   /** In fit mode, size every page to the width instead of the widest page (phones). */
@@ -61,7 +65,7 @@ export interface Markup {
   onRemove: (pageId: string, id: string) => void
 }
 
-export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup, forms, padding = 24, fitEach = false }: Props) {
+export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup, forms, ocr, padding = 24, fitEach = false }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const elements = useRef(new Map<string, HTMLDivElement>())
   const [width, setWidth] = useState(0)
@@ -174,6 +178,7 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
               activeHit={activeHit?.pageId === page.id ? activeHit : null}
               scale={pageScale * PX_PER_PT}
               entered={forms.values[page.sourceId]}
+              ocr={ocr[page.sourceId]?.[page.index]}
               onField={(name, value) => forms.onChange(page.sourceId, name, value)}
               interaction={{
                 tool: markup.tool,
@@ -209,6 +214,7 @@ interface PageProps {
   activeHit: ActiveHit | null
   scale: number
   entered: Entered
+  ocr: OcrPage | undefined
   onField: (name: string, value: FieldValue | null) => void
   interaction: Interaction
   ref: (el: HTMLDivElement | null) => void
@@ -216,13 +222,14 @@ interface PageProps {
 
 const NO_CANVASES = new Map<string, HTMLCanvasElement[]>()
 
-function ViewerPage({ page, sources, number, width, height, root, query, activeHit, scale, entered, onField, interaction, ref }: PageProps) {
+function ViewerPage({ page, sources, number, width, height, root, query, activeHit, scale, entered, ocr, onField, interaction, ref }: PageProps) {
   const box = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [near, setNear] = useState(false)
   const [rendered, setRendered] = useState(false)
   const textBox = useRef<HTMLDivElement>(null)
-  const [spans, setSpans] = useState<HTMLElement[]>([])
+  // Text items that read as one string for searching: one per pdf.js span, one per line of recognised words.
+  const [spans, setSpans] = useState<HTMLElement[][]>([])
   const [form, setForm] = useState<PageForm | null>(null)
   const [canvases, setCanvases] = useState(NO_CANVASES)
   const revealed = useRef(0)
@@ -237,6 +244,7 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
   }, [root])
 
   const source = sources[page.sourceId]
+  const hasOcr = !!ocr
   useEffect(() => {
     const c = canvas.current!
     if (!near) {
@@ -261,9 +269,9 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
         })
         .then(() => !ctrl.signal.aborted && setRendered(true))
         .catch((e) => console.error('Seite konnte nicht gezeichnet werden', e))
-      if (source.kind === 'pdf') {
+      if (source.kind === 'pdf' && !hasOcr) {
         renderTextLayer(textBox.current!, source, page.index, page.rotation, width, ctrl.signal)
-          .then((s) => !ctrl.signal.aborted && setSpans(s))
+          .then((s) => !ctrl.signal.aborted && setSpans(s.map((span) => [span])))
           .catch((e) => console.error('Textebene fehlgeschlagen', e))
       }
     }, rendered ? 120 : 0)
@@ -272,30 +280,40 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
       ctrl.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [near, source, page.index, page.rotation, width])
+  }, [near, source, page.index, page.rotation, width, hasOcr])
+
+  // Recognised text is placed from the page's own data, so it needs no render task.
+  useEffect(() => {
+    if (near && ocr) setSpans(renderOcrLayer(textBox.current!, ocr, source.pages[page.index], page.rotation, width))
+  }, [near, ocr, source, page.index, page.rotation, width])
 
   useEffect(() => {
     let n = 0
     let active: HTMLElement | null = null
-    for (const span of spans) {
-      const text = span.textContent ?? ''
-      const ranges = matchRanges(text, query)
-      if (ranges.length === 0 && !span.childElementCount) continue
-      span.replaceChildren()
-      let at = 0
-      for (const [start, end] of ranges) {
-        const mark = document.createElement('mark')
-        mark.className = 'hit'
-        mark.textContent = text.slice(start, end)
-        if (activeHit?.n === n) {
-          mark.classList.add('is-active')
-          active = mark
+    for (const unit of spans) {
+      const texts = unit.map((span) => span.textContent ?? '')
+      const matches = matchPieces(texts, query)
+      if (matches.length === 0 && !unit.some((span) => span.childElementCount)) continue
+      for (const [item, span] of unit.entries()) {
+        const text = texts[item]
+        span.replaceChildren()
+        let at = 0
+        // A hit across several words marks a part of each of them.
+        const own = matches.flatMap((pieces, k) => pieces.filter((p) => p.item === item).map((p) => ({ ...p, hit: n + k })))
+        for (const { start, end, hit } of own) {
+          const mark = document.createElement('mark')
+          mark.className = 'hit'
+          mark.textContent = text.slice(start, end)
+          if (activeHit?.n === hit) {
+            mark.classList.add('is-active')
+            active ??= mark
+          }
+          span.append(text.slice(at, start), mark)
+          at = end
         }
-        n++
-        span.append(text.slice(at, start), mark)
-        at = end
+        span.append(text.slice(at))
       }
-      span.append(text.slice(at))
+      n += matches.length
     }
     if (active && activeHit && revealed.current !== activeHit.nonce) {
       revealed.current = activeHit.nonce

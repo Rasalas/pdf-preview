@@ -392,6 +392,7 @@ button { font: inherit; color: inherit; }
 .toast.is-note { border-left-color: var(--accent); }
 .toast span { flex: 1; }
 .toast button { border: 0; background: none; color: var(--text-2); padding: 2px; display: grid; }
+.toast .toast-action { flex: none; display: block; padding: 2px 6px; color: var(--accent); font-weight: 500; }
 @keyframes toast-in { from { transform: translateY(12px); opacity: 0; } }
 
 .print-frame { position: fixed; right: 0; bottom: 0; width: 0; height: 0; border: 0; }
@@ -419,6 +420,8 @@ button { font: inherit; color: inherit; }
 .search input { flex: 1; min-width: 0; border: 0; background: none; font: inherit; color: var(--text); outline: none; }
 .search input::-webkit-search-cancel-button { display: none; }
 .search-count { flex: none; color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.search-scan { flex: none; display: grid; margin-right: -4px; padding: 3px; border: 0; border-radius: 5px; background: none; color: var(--accent); }
+.search-scan:hover { background: var(--control-hover); }
 
 .thumb-hits {
   position: absolute;
@@ -487,6 +490,8 @@ button { font: inherit; color: inherit; }
   background: rgb(255 196 0 / 0.42);
 }
 .textLayer mark.hit.is-active { background: rgb(255 140 0 / 0.6); box-shadow: 0 0 0 2px rgb(255 140 0 / 0.8); }
+/* Recognised text: the font must be the one src/ocr/layer.ts measures with */
+.ocr-layer span { font-family: Helvetica, Arial, sans-serif; }
 
 /* Form fields: laid out in the page's own space and turned with it, like .ann-layer */
 .form-layer { position: absolute; top: 0; left: 0; z-index: 1; transform-origin: 0 0; pointer-events: none; color-scheme: only light; --field-tint: rgb(5 150 105 / 0.1); }
