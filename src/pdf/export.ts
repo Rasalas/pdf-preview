@@ -1,6 +1,6 @@
-export { EncryptedPDFError } from 'pdf-lib'
 import {
   BlendMode,
+  EncryptedPDFError,
   LineCapStyle,
   PDFDocument,
   StandardFonts,
@@ -28,7 +28,10 @@ import type { Annotation, Page, Point, Sources } from '../model/types'
 
 const loaded = new Map<string, Promise<PDFDocument>>()
 
-/** Throws pdf-lib's EncryptedPDFError for encrypted files, which we cannot export yet. */
+/** pdf-lib is compiled to ES5, where `instanceof` fails for its error subclasses. */
+export const isEncryptedError = (e: unknown) => e instanceof Error && e.message === new EncryptedPDFError().message
+
+/** Rejects for encrypted files (see isEncryptedError); import unlocks them first. */
 export function loadForExport(id: string, bytes: Uint8Array): Promise<PDFDocument> {
   let doc = loaded.get(id)
   if (!doc) {

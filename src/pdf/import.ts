@@ -1,8 +1,16 @@
 import { newId } from '../model/ids'
 import type { PageSize, Source } from '../model/types'
+import { PasswordError, UnsupportedEncryptionError, decryptPdf } from './decrypt'
 import { openPdf } from './pdfjs'
 
 export class ImportError extends Error {}
+
+export interface ImportOptions {
+  /** Resolves with the password, or null when the user skips the file. */
+  askPassword?: (request: { name: string; wrong: boolean }) => Promise<string | null>
+  /** Passes on something the user should know about a file. */
+  notify?: (text: string) => void
+}
 
 const PT_PER_PX = 72 / 96
 // Images become pages at 96 dpi, shrunk so the long edge is at most A4's.
@@ -23,33 +31,42 @@ const IMAGE_TYPES: Record<string, string> = {
   heif: 'image/heif',
 }
 
-export async function importFile(file: File): Promise<Source> {
+/** Resolves with null when the user skips a password-protected file. */
+export async function importFile(file: File, options: ImportOptions = {}): Promise<Source | null> {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
-  if (file.type === 'application/pdf' || ext === 'pdf') return importPdf(file)
+  if (file.type === 'application/pdf' || ext === 'pdf') return importPdf(file, options)
   const type = file.type.startsWith('image/') ? file.type : IMAGE_TYPES[ext]
   if (type) return importImage(file, type)
   if (file.size === 0 && !file.type) throw new ImportError(`„${file.name}“ ist ein Ordner oder leer. Bitte die Dateien darin auswählen.`)
   throw new ImportError(`„${file.name}“ ist weder ein PDF noch ein Bild.`)
 }
 
-async function importPdf(file: File): Promise<Source> {
+const unreadable = (file: File) => new ImportError(`„${file.name}“ konnte nicht gelesen werden. Die Datei ist vielleicht beschädigt.`)
+
+async function importPdf(file: File, options: ImportOptions): Promise<Source | null> {
   const id = newId()
-  const bytes = new Uint8Array(await file.arrayBuffer())
+  let bytes: Uint8Array = new Uint8Array(await file.arrayBuffer())
   // pdf-lib must be able to read the file, or it could not be exported later.
-  const { loadForExport, EncryptedPDFError } = await import('./export')
+  const { loadForExport, isEncryptedError } = await import('./export')
   try {
     await loadForExport(id, bytes)
   } catch (e) {
-    if (e instanceof EncryptedPDFError) {
-      throw new ImportError(`„${file.name}“ ist verschlüsselt. Verschlüsselte PDFs werden noch nicht unterstützt.`)
+    if (!isEncryptedError(e)) throw unreadable(file)
+    // From here on the source holds the decrypted bytes, so everything else works as for any PDF.
+    const plain = await unlock(file, bytes, options)
+    if (!plain) return null
+    bytes = plain
+    try {
+      await loadForExport(id, bytes)
+    } catch {
+      throw unreadable(file)
     }
-    throw new ImportError(`„${file.name}“ konnte nicht gelesen werden. Die Datei ist vielleicht beschädigt.`)
   }
   let doc
   try {
     doc = await openPdf({ id, bytes })
   } catch {
-    throw new ImportError(`„${file.name}“ konnte nicht gelesen werden. Die Datei ist vielleicht beschädigt.`)
+    throw unreadable(file)
   }
   const pages: PageSize[] = []
   for (let i = 1; i <= doc.numPages; i++) {
@@ -58,6 +75,32 @@ async function importPdf(file: File): Promise<Source> {
   }
   if (pages.length === 0) throw new ImportError(`„${file.name}“ enthält keine Seiten.`)
   return { id, name: file.name, kind: 'pdf', mime: 'application/pdf', bytes, pages }
+}
+
+/** Returns the unencrypted bytes, or null when the user skips the file. */
+async function unlock(file: File, bytes: Uint8Array, { askPassword, notify }: ImportOptions): Promise<Uint8Array | null> {
+  // The empty password first: files that only restrict permissions open without asking.
+  let password = ''
+  for (;;) {
+    try {
+      const plain = await decryptPdf(bytes, password)
+      notify?.(
+        password
+          ? `„${file.name}“ ist entsperrt. Gesicherte Kopien sind nicht mehr passwortgeschützt.`
+          : `„${file.name}“ war geschützt, ließ sich aber ohne Passwort öffnen. Gesicherte Kopien sind nicht geschützt.`,
+      )
+      return plain
+    } catch (e) {
+      if (e instanceof UnsupportedEncryptionError) {
+        throw new ImportError(`„${file.name}“ ist mit einem Verfahren geschützt, das hier nicht geöffnet werden kann (etwa Zertifikat oder Rechteverwaltung).`)
+      }
+      if (!(e instanceof PasswordError)) throw unreadable(file)
+    }
+    if (!askPassword) throw new ImportError(`„${file.name}“ ist passwortgeschützt.`)
+    const next = await askPassword({ name: file.name, wrong: password !== '' })
+    if (next === null) return null
+    password = next
+  }
 }
 
 async function importImage(file: File, type: string): Promise<Source> {
@@ -73,7 +116,7 @@ async function importImage(file: File, type: string): Promise<Source> {
     throw new ImportError(`Das Bild „${file.name}“ kann dieser Browser nicht öffnen.`)
   }
   const { width, height } = bitmap
-  let bytes = new Uint8Array(await file.arrayBuffer())
+  let bytes: Uint8Array = new Uint8Array(await file.arrayBuffer())
   // Trust the content, not the name: a PNG called .jpg would otherwise fail at export.
   let mime = sniffImage(bytes)
   if (!mime) {
