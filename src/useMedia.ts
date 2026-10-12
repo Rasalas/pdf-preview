@@ -16,3 +16,5 @@ export function useMedia(query: string): boolean {
 export const COMPACT = '(max-width: 820px)'
 /** Devices without hover, where "drag files here" makes no sense. */
 export const TOUCH = '(hover: none)'
+/** A mouse or trackpad that can hover, for controls that appear under the pointer. */
+export const FINE = '(hover: hover) and (pointer: fine)'

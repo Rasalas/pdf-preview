@@ -4,13 +4,18 @@ import { AboutDialog } from './components/AboutDialog'
 import { BottomBar } from './components/BottomBar'
 import { EmptyState } from './components/EmptyState'
 import { MarkupBar } from './components/MarkupBar'
+import { PasswordDialog } from './components/PasswordDialog'
 import { SignatureDialog } from './components/SignatureDialog'
 import { Icon, type IconName } from './components/icons'
 import { Menu, type MenuItem } from './components/Menu'
+import type { PageActions } from './components/PageHover'
 import { PAGES_MIME, Sidebar } from './components/Sidebar'
-import { Viewer, type ActiveHit, type Markup, type Zoom } from './components/Viewer'
-import { rotatedSize } from './model/pages'
-import type { Page } from './model/types'
+import { Viewer, type ActiveHit, type CropRequest, type Markup, type Zoom } from './components/Viewer'
+import { displayedSize } from './model/crop'
+import type { Page, Rect } from './model/types'
+import { isScan } from './ocr/scans'
+import { useRecognition } from './ocr/useRecognition'
+import type { CompressStats } from './pdf/compress'
 import { A4, ACCEPT, ImportError, blankSource, importFile } from './pdf/import'
 import { countMatches, normalizeQuery, pageStrings } from './pdf/text'
 import { clearSession, loadSession, saveSession, type Session } from './persist'
@@ -33,7 +38,23 @@ interface Task {
 interface Toast {
   id: number
   text: string
+  note?: boolean
+  action?: { label: string; run: () => void }
 }
+
+interface PasswordRequest {
+  id: number
+  name: string
+  wrong: boolean
+  answer: (password: string | null) => void
+}
+
+type MenuState = { x: number; y: number } & (
+  /** `from` is the page whose hover actions opened it, `on` the page of a context menu. */
+  | { kind: 'page'; from?: string; on?: string }
+  | { kind: 'gap'; at: number }
+  | { kind: 'document' | 'more' }
+)
 
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
@@ -48,12 +69,14 @@ export default function App() {
   const [scrollRequest, setScrollRequest] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(() => innerWidth > 720)
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem('sidebarWidth')) || 200)
-  const [menu, setMenu] = useState<{ x: number; y: number; kind: 'page' | 'document' | 'more' } | null>(null)
+  const [menu, setMenu] = useState<MenuState | null>(null)
   const compact = useMedia(COMPACT)
   const [searchOpen, setSearchOpen] = useState(false)
   const [selecting, setSelecting] = useState(false)
+  const [cropping, setCropping] = useState<CropRequest | null>(null)
   const [task, setTask] = useState<Task | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [dropping, setDropping] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -80,16 +103,25 @@ export default function App() {
   useEffect(() => localStorage.setItem('signatures', JSON.stringify(signatures)), [signatures])
 
   const [query, setQuery] = useState('')
-  const [hits, setHits] = useState<{ query: string; pages: Map<string, number>; done: boolean }>({ query: '', pages: new Map(), done: true })
+  const [hits, setHits] = useState<{ query: string; pages: Map<string, number>; scans: string[]; done: boolean }>({ query: '', pages: new Map(), scans: [], done: true })
   const [activeHit, setActiveHit] = useState<ActiveHit | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const q = normalizeQuery(query)
 
-  const toast = useCallback((text: string) => {
+  const toast = useCallback((text: string, note = false, action?: Toast['action']) => {
     const id = Date.now() + Math.random()
-    setToasts((t) => [...t, { id, text }])
+    setToasts((t) => [...t, { id, text, note, action }])
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 7000)
   }, [])
+
+  // An offer to start something has served its purpose once something runs.
+  useEffect(() => {
+    if (task) setToasts((all) => all.filter((t) => !t.action))
+  }, [task])
+
+  const recognise = useRecognition({ sources: state.sources, ocr: state.ocr, dispatch, setTask, toast })
+  const recogniseRef = useRef(recognise)
+  recogniseRef.current = recognise
 
   useEffect(() => {
     loadSession().then((s) => {
@@ -100,45 +132,68 @@ export default function App() {
 
   useEffect(() => {
     if (!persisting) return
-    const t = setTimeout(() => saveSession(state.title, pages, state.sources), 800)
+    const t = setTimeout(() => saveSession(state.title, pages, state.sources, state.fields, state.ocr), 800)
     return () => clearTimeout(t)
-  }, [persisting, pages, state.title, state.sources])
+  }, [persisting, pages, state.title, state.sources, state.fields, state.ocr])
 
   // Show the pages an edit touched. Annotation edits leave the view where it is.
-  const layoutKey = pages.map((p) => `${p.id}:${p.rotation}`).join()
+  const layoutKey = pages.map((p) => `${p.id}:${p.rotation}:${p.crop ? Object.values(p.crop) : ''}`).join()
   useEffect(() => setScrollRequest((n) => n + 1), [layoutKey])
 
   useEffect(() => {
     document.title = pages.length ? `${state.title || 'Unbenannt'} – Vorschau` : 'Vorschau'
   }, [pages.length, state.title])
 
+  useEffect(() => setActiveHit(null), [q, pages, state.sources])
+
+  // Also runs when text is recognised, without taking the user off the hit they are on.
   useEffect(() => {
-    setActiveHit(null)
     if (!q) {
-      setHits({ query: '', pages: new Map(), done: true })
+      setHits({ query: '', pages: new Map(), scans: [], done: true })
       return
     }
     let live = true
     const t = setTimeout(async () => {
       const found = new Map<string, number>()
+      const scans: string[] = []
       for (const [i, page] of pages.entries()) {
         let n = 0
         try {
-          n = countMatches(await pageStrings(state.sources[page.sourceId], page.index), q)
+          const source = state.sources[page.sourceId]
+          const read = state.ocr[page.sourceId]?.[page.index]
+          const items = await pageStrings(source, page.index, read)
+          n = countMatches(items, q)
+          if (isScan(source, !!read, items)) scans.push(page.id)
         } catch (e) {
           console.error(e)
         }
         if (!live) return
         if (n) found.set(page.id, n)
-        if (i % 25 === 24) setHits({ query: q, pages: new Map(found), done: false })
+        if (i % 25 === 24) setHits({ query: q, pages: new Map(found), scans: [...scans], done: false })
       }
-      setHits({ query: q, pages: found, done: true })
+      setHits({ query: q, pages: found, scans, done: true })
     }, 150)
     return () => {
       live = false
       clearTimeout(t)
     }
-  }, [q, pages, state.sources])
+  }, [q, pages, state.sources, state.ocr])
+
+  // Once per search, say that scans without text were left out.
+  const scansNoted = useRef(false)
+  useEffect(() => {
+    if (!q) scansNoted.current = false
+    if (!hits.done || hits.query !== q || hits.scans.length === 0 || scansNoted.current) return
+    scansNoted.current = true
+    const n = hits.scans.length
+    const scanPages = pagesRef.current.filter((p) => hits.scans.includes(p.id))
+    toast(
+      `${n === 1 ? 'Eine Seite ist ein Scan ohne Text und wird' : `${n} Seiten sind Scans ohne Text und werden`} bei der Suche übergangen.`,
+      true,
+      { label: 'Text erkennen', run: () => recogniseRef.current(scanPages) },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hits, q])
 
   const hitOrder = useMemo(
     () => pages.flatMap((p) => Array.from({ length: hits.pages.get(p.id) ?? 0 }, (_, n) => ({ pageId: p.id, n }))),
@@ -198,11 +253,16 @@ export default function App() {
         cancel,
       })
       try {
-        sources.push(await importFile(file))
+        const added = await importFile(file, {
+          askPassword: ({ name, wrong }) => new Promise((answer) => setPasswordRequest({ id: Math.random(), name, wrong, answer })),
+          notify: (text) => toast(text, true),
+        })
+        sources.push(...added)
       } catch (e) {
         console.error(e)
         toast(e instanceof ImportError ? e.message : `„${file.name}“ konnte nicht importiert werden.`)
       } finally {
+        setPasswordRequest(null)
         queued.current--
         processed++
       }
@@ -226,21 +286,29 @@ export default function App() {
     const size = ref ? state.sources[ref.sourceId].pages[ref.index] : A4
     setSession(null)
     setPersisting(true)
-    dispatch({ type: 'import', sources: [blankSource(ref ? rotatedSize(size, ref.rotation) : A4)], before: pages[at]?.id ?? null })
+    dispatch({ type: 'import', sources: [blankSource(ref ? displayedSize(size, ref) : A4)], before: pages[at]?.id ?? null })
   }
 
-  const exportPdf = async (list: Page[], suffix = '') => {
+  const exportPdf = async (list: Page[], suffix = '', compress = false) => {
     if (list.length === 0) return
     const title = state.title.trim() || 'Unbenannt'
     let cancelled = false
-    setTask({ label: 'PDF wird erstellt', progress: 0, cancel: () => (cancelled = true) })
+    let stats: CompressStats | undefined
+    setTask({ label: compress ? 'Kleineres PDF wird erstellt' : 'PDF wird erstellt', progress: 0, cancel: () => (cancelled = true) })
     try {
-      const { buildPdf } = await import('./pdf/export')
-      const bytes = await buildPdf(list, state.sources, title, (done, total) => {
-        if (cancelled) throw new DOMException('Abgebrochen', 'AbortError')
-        setTask((t) => t && { ...t, progress: done / total })
-      })
+      const { buildPdf, savingsMessage } = await import('./pdf/export')
+      const bytes = await buildPdf(
+        list,
+        state.sources,
+        title,
+        (done, total) => {
+          if (cancelled) throw new DOMException('Abgebrochen', 'AbortError')
+          setTask((t) => t && { ...t, progress: done / total })
+        },
+        { fields: state.fields, ocr: state.ocr, compress, onCompressed: (s) => (stats = s) },
+      )
       await download(bytes, `${title}${suffix}.pdf`)
+      if (stats) toast(savingsMessage(bytes.length, stats), true)
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {
         console.error(e)
@@ -259,7 +327,7 @@ export default function App() {
     setTask({ label: 'Druck wird vorbereitet', progress: null })
     try {
       const { buildPdf } = await import('./pdf/export')
-      const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt')
+      const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt', undefined, { fields: state.fields, ocr: state.ocr })
       if (isDesktop) {
         const { openInSystemViewer } = await import('./desktop')
         await openInSystemViewer(bytes, `${state.title || 'Unbenannt'}.pdf`)
@@ -309,7 +377,7 @@ export default function App() {
 
   const restore = () => {
     if (!session) return
-    dispatch({ type: 'restore', title: session.title, pages: session.pages, sources: session.sources })
+    dispatch({ type: 'restore', title: session.title, pages: session.pages, sources: session.sources, fields: session.fields, ocr: session.ocr })
     setSession(null)
     setPersisting(true)
   }
@@ -319,6 +387,33 @@ export default function App() {
     setPersisting(true)
     clearSession()
   }
+
+  const beginCrop = (pageId: string, ids: string[]) => {
+    dispatch({ type: 'scrolledTo', id: pageId })
+    setCropping({ pageId, ids })
+    setScrollRequest((n) => n + 1)
+  }
+
+  const endCrop = () => {
+    if (cropping) dispatch({ type: 'scrolledTo', id: cropping.pageId })
+    setCropping(null)
+    setScrollRequest((n) => n + 1)
+  }
+
+  const applyCrop = (crop: Rect | null, all: boolean) => {
+    if (cropping) dispatch({ type: 'crop', pageId: cropping.pageId, crop, also: all ? cropping.ids : [] })
+    endCrop()
+  }
+
+  // The page the menu was opened on, or else the one being read; the other selected pages can share the crop.
+  const startCrop = (on?: string) => {
+    const id = [on, state.current].find((p) => p && selection.has(p)) ?? state.selection[0]
+    if (id) beginCrop(id, state.selection)
+  }
+
+  useEffect(() => {
+    if (cropping && !pages.some((p) => p.id === cropping.pageId)) setCropping(null)
+  }, [cropping, pages])
 
   const selectedAnnotation = state.markup ? findAnnotation(pages, state.markup) : undefined
   const selectedKind = !selectedAnnotation
@@ -389,6 +484,8 @@ export default function App() {
     { label: 'Nach links drehen', shortcut: `${MOD}L`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: -90 }) },
     { label: 'Nach rechts drehen', shortcut: `${MOD}R`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: 90 }) },
     { label: 'Duplizieren', shortcut: `${MOD}D`, disabled: !has, run: () => dispatch({ type: 'duplicate' }) },
+    { label: 'Text erkennen …', disabled: !has || !!task, run: () => recognise(selectedPages) },
+    { label: 'Beschneiden …', shortcut: `${MOD}K`, disabled: !has, run: () => startCrop(menu?.kind === 'page' ? (menu.from ?? menu.on) : undefined) },
     'separator',
     { label: 'Dateien danach einfügen …', run: () => openFiles() },
     { label: 'Leere Seite danach einfügen', run: () => insertBlank() },
@@ -401,13 +498,43 @@ export default function App() {
   const onThumbContextMenu = (e: MouseEvent, id: string) => {
     e.preventDefault()
     if (!selection.has(id)) dispatch({ type: 'select', id, mode: 'single' })
-    setMenu({ x: e.clientX, y: e.clientY, kind: 'page' })
+    setMenu({ x: e.clientX, y: e.clientY, kind: 'page', on: id })
+  }
+
+  const gapMenu = (at: number): MenuItem[] => [
+    { label: 'Dateien hier einfügen …', run: () => openFiles(at) },
+    { label: 'Leere Seite hier einfügen', run: () => insertBlank(at) },
+  ]
+
+  // Buttons on a page act on that page alone: after an import every new page is selected,
+  // and rotating one page must not turn all of them. "Mehr" works on the selection like the context menu.
+  const onHoveredPage = (id: string, action: Action) => {
+    dispatch({ type: 'select', id, mode: 'single' })
+    dispatch(action)
+  }
+
+  const below = (r: DOMRect) => ({ x: r.left, y: r.bottom + 6 })
+
+  const pageActions: PageActions = {
+    mod: MOD,
+    pinned: menu?.kind === 'gap' ? { gap: menu.at } : menu?.kind === 'page' && menu.from ? { page: menu.from } : null,
+    onRotate: (id, delta) => onHoveredPage(id, { type: 'rotate', delta }),
+    onRemove: (id) => onHoveredPage(id, { type: 'remove' }),
+    onMore: (id, anchor) => {
+      if (!selection.has(id)) dispatch({ type: 'select', id, mode: 'single' })
+      setMenu({ ...below(anchor), kind: 'page', from: id })
+    },
+    onGap: (at, anchor) => setMenu({ ...below(anchor), kind: 'gap', at }),
+    onAdd: () => openFiles(pages.length),
   }
 
   const documentMenu = (): MenuItem[] => [
     { label: 'Als PDF sichern …', shortcut: `${MOD}S`, disabled: !pages.length, run: () => exportPdf(pages) },
+    { label: 'Kleiner sichern …', disabled: !pages.length, run: () => exportPdf(pages, ' – klein', true) },
     { label: `Auswahl sichern (${count}) …`, disabled: !has || count === pages.length, run: () => exportPdf(selectedPages, ' – Auswahl') },
     { label: 'Drucken …', shortcut: `${MOD}P`, disabled: !pages.length, run: print },
+    'separator',
+    { label: 'Text erkennen …', disabled: !pages.length || !!task, run: () => recognise(pages) },
     'separator',
     { label: 'Dateien einfügen …', shortcut: `${MOD}O`, run: () => openFiles() },
     { label: 'Leere Seite einfügen', run: () => insertBlank() },
@@ -432,6 +559,8 @@ export default function App() {
     { label: 'Wiederholen', disabled: !canRedo, run: () => dispatch({ type: 'redo' }) },
     { label: 'Nach links drehen', disabled: !state.current, run: () => onVisiblePage({ type: 'rotate', delta: -90 }) },
     { label: 'Duplizieren', disabled: !state.current, run: () => onVisiblePage({ type: 'duplicate' }) },
+    { label: 'Text erkennen …', disabled: !state.current || !!task, run: () => recognise(pages.filter((p) => p.id === state.current)) },
+    { label: 'Beschneiden …', disabled: !state.current, run: () => state.current && beginCrop(state.current, [state.current]) },
     { label: 'Leere Seite danach einfügen', run: () => insertBlank(currentIndex + 1) },
     'separator',
     { label: 'Vergrößern', run: () => zoomBy(1) },
@@ -445,13 +574,17 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       const t = e.target as HTMLElement
-      if (t.closest?.('input, textarea, [contenteditable]') || menu) return
       const mod = e.metaKey || e.ctrlKey
+      // In a form field only the document-wide shortcuts apply, so Backspace or ⌘A edit the field.
+      const fieldShortcut = t.closest?.('.form-layer') && mod && ['s', 'p', 'o', 'f'].includes(e.key.toLowerCase())
+      if ((t.closest?.('input, textarea, select, [contenteditable]') && !fieldShortcut) || menu) return
       const key = e.key.toLowerCase()
       const run = (fn: () => void) => {
         e.preventDefault()
         fn()
       }
+      // While cropping, Return and Escape belong to the crop bar and page shortcuts must not change the pages.
+      if (cropping && !(mod && ['+', '=', '-', '0'].includes(key))) return
       if (mod && e.shiftKey && key === 'a') return run(() => setMarkupOpen((o) => !o))
       if (e.key === 'Escape' && state.markup) return run(() => dispatch({ type: 'selectAnnotation', target: null }))
       if (e.key === 'Escape' && tool !== 'select') return run(() => setTool('select'))
@@ -469,6 +602,7 @@ export default function App() {
       if (mod && key === 'p') return run(print)
       if (mod && key === 'a') return run(() => dispatch({ type: 'selectAll' }))
       if (mod && key === 'd') return run(() => dispatch({ type: 'duplicate' }))
+      if (mod && key === 'k') return run(() => has && startCrop())
       if (mod && key === 'r') return run(() => dispatch({ type: 'rotate', delta: 90 }))
       if (mod && key === 'l') return run(() => dispatch({ type: 'rotate', delta: -90 }))
       if (mod && (key === '+' || key === '=')) return run(() => zoomBy(1))
@@ -609,6 +743,16 @@ export default function App() {
             : `${activeIndex + 1 || '–'} / ${hitOrder.length}${hits.done ? '' : '+'}`}
         </span>
       ) : null}
+      {q && hits.done && hits.query === q && hits.scans.length && !task ? (
+        <button
+          className="search-scan"
+          title={`${hits.scans.length === 1 ? 'Eine Seite ist ein Scan' : `${hits.scans.length} Seiten sind Scans`} ohne Text – Text erkennen …`}
+          aria-label="Text auf Scans ohne Text erkennen"
+          onClick={() => recognise(pages.filter((p) => hits.scans.includes(p.id)))}
+        >
+          <Icon name="scanText" width={15} />
+        </button>
+      ) : null}
     </div>
   )
 
@@ -702,10 +846,6 @@ export default function App() {
                   </button>
                   <ToolButton icon="zoomIn" label={`Vergrößern (${MOD}+)`} disabled={empty} onClick={() => zoomBy(1)} />
                 </div>
-                <div className="toolbar-group">
-                  <ToolButton icon="rotateLeft" label={`Nach links drehen (${MOD}L)`} disabled={!has} onClick={() => dispatch({ type: 'rotate', delta: -90 })} />
-                  <ToolButton icon="rotateRight" label={`Nach rechts drehen (${MOD}R)`} disabled={!has} onClick={() => dispatch({ type: 'rotate', delta: 90 })} />
-                </div>
               </>
             )}
             {compact && !empty ? <ToolButton icon="search" label="Im Dokument suchen" onClick={() => setSearchOpen(true)} /> : null}
@@ -717,10 +857,6 @@ export default function App() {
                 <div className="toolbar-group">
                   <ToolButton icon="undo" label={`Widerrufen (${MOD}Z)`} disabled={!canUndo} onClick={() => dispatch({ type: 'undo' })} />
                   <ToolButton icon="redo" label={`Wiederholen (⇧${MOD}Z)`} disabled={!canRedo} onClick={() => dispatch({ type: 'redo' })} />
-                </div>
-                <div className="toolbar-group">
-                  <ToolButton icon="trash" label="Ausgewählte Seiten löschen (⌫)" disabled={!has} onClick={() => dispatch({ type: 'remove' })} />
-                  <ToolButton icon="plus" label={`Dateien einfügen (${MOD}O)`} onClick={() => openFiles()} />
                 </div>
                 {empty ? null : searchField}
               </>
@@ -763,6 +899,7 @@ export default function App() {
                 <Sidebar
                   pages={pages}
                   sources={state.sources}
+                  fields={state.fields}
                   selection={selection}
                   current={state.current}
                   width={186}
@@ -788,6 +925,7 @@ export default function App() {
                 <Sidebar
                   pages={pages}
                   sources={state.sources}
+                  fields={state.fields}
                   selection={selection}
                   current={state.current}
                   width={sidebarWidth}
@@ -797,6 +935,7 @@ export default function App() {
                   onContextMenu={onThumbContextMenu}
                   onKeyDown={onSidebarKey}
                   hits={q ? hits.pages : null}
+                  actions={pageActions}
                 />
                 <div className="sidebar-resize" onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Seitenleistenbreite" />
               </aside>
@@ -812,8 +951,13 @@ export default function App() {
               query={hits.query === q ? q : ''}
               activeHit={activeHit}
               markup={markup}
+              forms={{ values: state.fields, onChange: (sourceId, name, value) => dispatch({ type: 'field', sourceId, name, value }) }}
+              ocr={state.ocr}
               padding={compact ? 8 : 24}
               fitEach={compact}
+              crop={cropping}
+              onCrop={applyCrop}
+              onCancelCrop={endCrop}
             />
           </>
         )}
@@ -869,6 +1013,10 @@ export default function App() {
 
       {about ? <AboutDialog onClose={() => setAbout(false)} /> : null}
 
+      {passwordRequest ? (
+        <PasswordDialog key={passwordRequest.id} name={passwordRequest.name} wrong={passwordRequest.wrong} onAnswer={passwordRequest.answer} />
+      ) : null}
+
       {signatureDialog ? (
         <SignatureDialog
           onClose={() => setSignatureDialog(false)}
@@ -881,13 +1029,24 @@ export default function App() {
         />
       ) : null}
 
-      {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : menu.kind === 'more' ? moreMenu() : documentMenu()}
+      {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : menu.kind === 'more' ? moreMenu() : menu.kind === 'gap' ? gapMenu(menu.at) : documentMenu()}
           above={menu.kind === 'more'} onClose={() => setMenu(null)} /> : null}
 
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className="toast">
+          <div key={t.id} className={`toast${t.note ? ' is-note' : ''}`}>
             <span>{t.text}</span>
+            {t.action ? (
+              <button
+                className="toast-action"
+                onClick={() => {
+                  setToasts((all) => all.filter((x) => x.id !== t.id))
+                  t.action!.run()
+                }}
+              >
+                {t.action.label}
+              </button>
+            ) : null}
             <button aria-label="Schließen" onClick={() => setToasts((all) => all.filter((x) => x.id !== t.id))}>
               <Icon name="close" width={14} height={14} />
             </button>

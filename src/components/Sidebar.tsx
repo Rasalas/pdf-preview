@@ -1,14 +1,25 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'
+import { displayedSize, visibleRect } from '../model/crop'
 import { rotatedSize } from '../model/pages'
+import type { FieldValues } from '../model/forms'
 import type { Page, Sources } from '../model/types'
+import { pageEntries } from '../pdf/forms'
 import { thumbnailUrl } from '../pdf/pdfjs'
+import { FINE, useMedia } from '../useMedia'
+import { useSettled } from '../useSettled'
 import { AnnotationLayer } from './AnnotationLayer'
+import { Icon } from './icons'
+import { PageHover, type PageActions } from './PageHover'
 
 export const PAGES_MIME = 'application/x-vorschau-pages'
+/** Widest thumbnail render in CSS pixels; a tight crop would otherwise ask for a huge canvas. */
+const MAX_RENDER = 1600
 
 interface Props {
   pages: Page[]
   sources: Sources
+  /** Form entries, so thumbnails show them. */
+  fields: FieldValues
   selection: ReadonlySet<string>
   current: string | null
   width: number
@@ -22,11 +33,15 @@ interface Props {
   /** Touch layout: pages in a grid, a tap calls onTap instead of the desktop selection logic. */
   grid?: boolean
   onTap?: (id: string) => void
+  /** Desktop: actions on hovered pages, "+" between pages and a tile to append files. */
+  actions?: PageActions
 }
 
-export function Sidebar({ pages, sources, selection, current, width, onSelect, onMove, onDropFiles, onContextMenu, onKeyDown, hits, grid = false, onTap }: Props) {
+export function Sidebar({ pages, sources, fields, selection, current, width, onSelect, onMove, onDropFiles, onContextMenu, onKeyDown, hits, grid = false, onTap, actions }: Props) {
   const list = useRef<HTMLDivElement>(null)
   const [gap, setGap] = useState<number | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const hoverable = useMedia(FINE) && !!actions
   const thumbWidth = width - 56
 
   useEffect(() => {
@@ -63,6 +78,7 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
     e.stopPropagation()
     const at = gapAt(e.clientX, e.clientY)
     setGap(null)
+    setDragging(false)
     if (e.dataTransfer.types.includes(PAGES_MIME)) onMove(at)
     else onDropFiles([...e.dataTransfer.files], at)
   }
@@ -71,36 +87,45 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
     <div
       ref={list}
       className={`sidebar-list${grid ? ' is-grid' : ''}`}
-      role="listbox"
-      aria-label="Seiten"
-      aria-multiselectable="true"
-      tabIndex={0}
-      onKeyDown={onKeyDown}
       onDragOver={onDragOver}
       onDragLeave={(e) => {
         if (!list.current!.contains(e.relatedTarget as Node)) setGap(null)
       }}
       onDrop={onDrop}
     >
-      {pages.map((page, i) => (
-        <Thumb
-          key={page.id}
-          page={page}
-          sources={sources}
-          number={i + 1}
-          width={thumbWidth}
-          selected={selection.has(page.id)}
-          current={page.id === current}
-          hits={hits?.get(page.id) ?? (hits ? 0 : null)}
-          gapBefore={gap === i}
-          gapAfter={gap === pages.length && i === pages.length - 1}
-          onSelect={onSelect}
-          onContextMenu={onContextMenu}
-          onDragEnd={() => setGap(null)}
-          onTap={onTap}
-          root={list}
-        />
-      ))}
+      <div className="page-list" role="listbox" aria-label="Seiten" aria-multiselectable="true" tabIndex={0} onKeyDown={onKeyDown}>
+        {pages.map((page, i) => (
+          <Thumb
+            key={page.id}
+            page={page}
+            sources={sources}
+            entered={fields[page.sourceId]}
+            number={i + 1}
+            width={thumbWidth}
+            selected={selection.has(page.id)}
+            current={page.id === current}
+            hits={hits?.get(page.id) ?? (hits ? 0 : null)}
+            gapBefore={gap === i}
+            gapAfter={gap === pages.length && i === pages.length - 1}
+            onSelect={onSelect}
+            onContextMenu={onContextMenu}
+            onDragStart={() => setDragging(true)}
+            onDragEnd={() => {
+              setGap(null)
+              setDragging(false)
+            }}
+            onTap={onTap}
+            root={list}
+          />
+        ))}
+      </div>
+      {actions ? (
+        <button className={`add-tile${gap === pages.length ? ' is-target' : ''}`} style={{ width: thumbWidth }} onClick={actions.onAdd}>
+          <Icon name="plus" width={18} />
+          Dateien hinzufügen
+        </button>
+      ) : null}
+      {hoverable ? <PageHover root={list} pages={pages} actions={actions!} suspended={dragging || gap !== null} /> : null}
     </div>
   )
 }
@@ -115,6 +140,7 @@ function autoScroll(el: HTMLElement, y: number) {
 interface ThumbProps {
   page: Page
   sources: Sources
+  entered: FieldValues[string] | undefined
   number: number
   width: number
   selected: boolean
@@ -124,21 +150,28 @@ interface ThumbProps {
   gapAfter: boolean
   onSelect: Props['onSelect']
   onContextMenu: Props['onContextMenu']
+  onDragStart: () => void
   onDragEnd: () => void
   onTap?: (id: string) => void
   root: React.RefObject<HTMLDivElement | null>
 }
 
-function Thumb({ page, sources, number, width, selected, current, hits, gapBefore, gapAfter, onSelect, onContextMenu, onDragEnd, onTap, root }: ThumbProps) {
+function Thumb({ page, sources, entered: enteredNow, number, width, selected, current, hits, gapBefore, gapAfter, onSelect, onContextMenu, onDragStart, onDragEnd, onTap, root }: ThumbProps) {
   const el = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
   const source = sources[page.sourceId]
-  const size = rotatedSize(source.pages[page.index], page.rotation)
-  // Few distinct render widths, so resizing the sidebar mostly reuses cached thumbnails.
-  const renderWidth = Math.ceil(width / 80) * 80
+  const entered = useSettled(enteredNow, 500)
+  const sourceSize = source.pages[page.index]
+  const size = displayedSize(sourceSize, page)
+  const whole = rotatedSize(sourceSize, page.rotation)
+  const shown = visibleRect(sourceSize, page)
   const boxW = size.width >= size.height ? width : (width * size.width) / size.height
   const boxH = (boxW * size.height) / size.width
+  const k = boxW / size.width
+  // Few distinct render widths, so resizing the sidebar mostly reuses cached thumbnails.
+  // The whole page is drawn and clipped, so a crop renders it larger; the cap spares memory.
+  const renderWidth = Math.min(MAX_RENDER, Math.ceil(((Math.ceil(width / 80) * 80) * (whole.width / size.width)) / 80) * 80)
 
   useEffect(() => {
     const io = new IntersectionObserver(([e]) => e.isIntersecting && setVisible(true), {
@@ -152,13 +185,15 @@ function Thumb({ page, sources, number, width, selected, current, hits, gapBefor
   useEffect(() => {
     if (!visible) return
     let live = true
-    thumbnailUrl(source, page.index, page.rotation, renderWidth)
+    pageEntries(source, page.index, entered)
+      .catch(() => null)
+      .then((entries) => thumbnailUrl(source, page.index, page.rotation, renderWidth, entries))
       .then((u) => live && setUrl(u))
       .catch((e) => console.error('Miniatur fehlgeschlagen', e))
     return () => {
       live = false
     }
-  }, [visible, source, page.index, page.rotation, renderWidth])
+  }, [visible, source, page.index, page.rotation, renderWidth, entered])
 
   return (
     <div
@@ -184,14 +219,19 @@ function Thumb({ page, sources, number, width, selected, current, hits, gapBefor
       onDragStart={(e) => {
         e.dataTransfer.setData(PAGES_MIME, page.id)
         e.dataTransfer.effectAllowed = 'move'
+        onDragStart()
       }}
       onDragEnd={onDragEnd}
     >
       <div className="thumb-frame" style={{ width: boxW, height: boxH }}>
-        {url ? <img src={url} alt="" draggable={false} /> : null}
-        {page.annotations?.length ? (
-          <AnnotationLayer annotations={page.annotations} size={source.pages[page.index]} rotation={page.rotation} scale={boxW / size.width} />
-        ) : null}
+        <div className="thumb-clip">
+          <div className="page-content" style={{ left: -shown.x * k, top: -shown.y * k, width: whole.width * k, height: whole.height * k }}>
+            {url ? <img src={url} alt="" draggable={false} /> : null}
+            {page.annotations?.length ? (
+              <AnnotationLayer annotations={page.annotations} size={sourceSize} rotation={page.rotation} scale={k} />
+            ) : null}
+          </div>
+        </div>
         {hits ? <span className="thumb-hits" aria-label={`${hits} Treffer`}>{hits}</span> : null}
       </div>
       <span className="thumb-number">{number}</span>

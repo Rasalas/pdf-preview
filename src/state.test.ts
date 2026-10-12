@@ -109,3 +109,129 @@ describe('annotations', () => {
     expect(pagesOf(s).map((p) => p.annotations?.length)).toEqual([1, 1])
   })
 })
+
+describe('form fields', () => {
+  const field = (sourceId: string, name: string, value: string | string[] | null): Action => ({ type: 'field', sourceId, name, value })
+
+  it('stores values per source and drops them again when set back to the original', () => {
+    let s = run({ type: 'import', sources: [source('a', 1)], before: null }, field('a', 'name', 'Eva'), field('a', 'tick', 'Yes'))
+    expect(s.fields).toEqual({ a: { name: 'Eva', tick: 'Yes' } })
+    s = reducer(reducer(s, field('a', 'name', null)), field('a', 'tick', null))
+    expect(s.fields).toEqual({})
+  })
+
+  it('keeps the same state for an unchanged value', () => {
+    const s = run(field('a', 'name', 'Eva'))
+    expect(reducer(s, field('a', 'name', 'Eva'))).toBe(s)
+    expect(reducer(s, field('a', 'other', null))).toBe(s)
+  })
+
+  it('is not part of the undo history: undoing page edits keeps typed values', () => {
+    let s = run({ type: 'import', sources: [source('a', 2)], before: null })
+    s = reducer(s, { type: 'rotate', delta: 90 })
+    s = reducer(s, field('a', 'name', 'Eva'))
+    s = reducer(s, { type: 'undo' })
+    expect(pagesOf(s)[0].rotation).toBe(0)
+    expect(s.fields).toEqual({ a: { name: 'Eva' } })
+    s = reducer(s, { type: 'redo' })
+    expect(s.fields).toEqual({ a: { name: 'Eva' } })
+    expect(s.history.past).toHaveLength(2)
+  })
+
+  it('survives deleting and restoring a page by undo', () => {
+    let s = run({ type: 'import', sources: [source('a', 1)], before: null }, field('a', 'name', 'Eva'), { type: 'selectAll' }, { type: 'remove' })
+    expect(pagesOf(s)).toHaveLength(0)
+    s = reducer(s, { type: 'undo' })
+    expect(s.fields.a.name).toBe('Eva')
+  })
+
+  it('restores stored sessions with and without fields', () => {
+    const a = source('a', 1)
+    const pages = [{ id: 'p', sourceId: 'a', index: 0, rotation: 0 as const }]
+    expect(run({ type: 'restore', title: 't', pages, sources: { a }, fields: { a: { x: 'y' } } }).fields).toEqual({ a: { x: 'y' } })
+    // Sessions saved before form support have no fields.
+    expect(run({ type: 'restore', title: 't', pages, sources: { a } }).fields).toEqual({})
+  })
+})
+
+describe('recognised text', () => {
+  const read = (rotation: 0 | 90 = 0) => ({ rotation, lines: [{ words: [{ text: 'Hallo', x: 1, y: 2, w: 3, h: 4 }] }] })
+
+  it('belongs to the source page, so copies share it, and stays out of the undo history', () => {
+    let s = run({ type: 'import', sources: [source('a', 2)], before: null }, { type: 'selectAll' }, { type: 'duplicate' })
+    expect(pagesOf(s)).toHaveLength(4)
+    s = reducer(s, { type: 'ocr', sourceId: 'a', index: 1, page: read() })
+    expect(Object.keys(s.ocr.a)).toEqual(['1'])
+    s = reducer(s, { type: 'undo' })
+    expect(pagesOf(s)).toHaveLength(2)
+    expect(s.ocr.a[1].lines).toHaveLength(1)
+    // Reading a page again replaces the result.
+    expect(reducer(s, { type: 'ocr', sourceId: 'a', index: 1, page: read(90) }).ocr.a[1].rotation).toBe(90)
+  })
+
+  it('restores stored sessions with and without it', () => {
+    const a = source('a', 1)
+    const pages = [{ id: 'p', sourceId: 'a', index: 0, rotation: 0 as const }]
+    expect(run({ type: 'restore', title: 't', pages, sources: { a }, ocr: { a: { 0: read() } } }).ocr.a[0].lines).toHaveLength(1)
+    // Sessions saved before text recognition have none.
+    expect(run({ type: 'restore', title: 't', pages, sources: { a } }).ocr).toEqual({})
+  })
+})
+
+describe('crop', () => {
+  const sized = (id: string, ...sizes: [number, number][]): Source => ({
+    ...source(id, 0),
+    pages: sizes.map(([width, height]) => ({ width, height })),
+  })
+  const rect = { x: 10, y: 20, w: 40, h: 80 }
+
+  it('crops a page as one undo step and keeps the crop in a duplicate', () => {
+    let s = run({ type: 'import', sources: [sized('a', [100, 200])], before: null })
+    const [page] = pagesOf(s)
+    s = reducer(s, { type: 'crop', pageId: page.id, crop: rect })
+    expect(pagesOf(s)[0].crop).toEqual(rect)
+    s = reducer(s, { type: 'duplicate' })
+    expect(pagesOf(s).map((p) => p.crop)).toEqual([rect, rect])
+    s = reducer(reducer(s, { type: 'undo' }), { type: 'undo' })
+    expect(pagesOf(s)[0].crop).toBeUndefined()
+    s = reducer(s, { type: 'redo' })
+    expect(pagesOf(s)[0].crop).toEqual(rect)
+  })
+
+  it('stores a crop that fits the page, and none for the whole page', () => {
+    let s = run({ type: 'import', sources: [sized('a', [100, 200])], before: null })
+    const [page] = pagesOf(s)
+    s = reducer(s, { type: 'crop', pageId: page.id, crop: { x: 90, y: 0, w: 50, h: 500 } })
+    expect(pagesOf(s)[0].crop).toEqual({ x: 50, y: 0, w: 50, h: 200 })
+    s = reducer(s, { type: 'crop', pageId: page.id, crop: { x: 0, y: 0, w: 100, h: 200 } })
+    expect(pagesOf(s)[0]).not.toHaveProperty('crop')
+  })
+
+  it('removes the crop with null and does not record a step when nothing changes', () => {
+    let s = run({ type: 'import', sources: [sized('a', [100, 200])], before: null })
+    const [page] = pagesOf(s)
+    const same = reducer(s, { type: 'crop', pageId: page.id, crop: null })
+    expect(same.history).toBe(s.history)
+    s = reducer(s, { type: 'crop', pageId: page.id, crop: rect })
+    s = reducer(s, { type: 'crop', pageId: page.id, crop: null })
+    expect(pagesOf(s)[0]).not.toHaveProperty('crop')
+    expect(s.history.past).toHaveLength(3)
+  })
+
+  it('gives other pages the same rectangle relative to their size', () => {
+    let s = run({ type: 'import', sources: [sized('a', [100, 200], [200, 400], [200, 100])], before: null })
+    const [p1, p2, p3] = pagesOf(s)
+    s = reducer(s, { type: 'rotate', delta: 90 })
+    s = reducer(s, { type: 'crop', pageId: p1.id, crop: rect, also: [p2.id] })
+    const [a, b, c] = pagesOf(s)
+    expect(a.crop).toEqual(rect)
+    expect(b.crop).toEqual({ x: 20, y: 40, w: 80, h: 160 })
+    expect(c.crop).toBeUndefined()
+    expect(c.id).toBe(p3.id)
+  })
+
+  it('ignores a page that is gone', () => {
+    const s = run({ type: 'import', sources: [sized('a', [100, 200])], before: null })
+    expect(reducer(s, { type: 'crop', pageId: 'nope', crop: rect })).toBe(s)
+  })
+})

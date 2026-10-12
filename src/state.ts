@@ -1,11 +1,21 @@
+import { sameValue, type FieldValue, type FieldValues } from './model/forms'
 import { commit, createHistory, redo, undo, type History } from './model/history'
 import { newId } from './model/ids'
-import { duplicatePages, insertPages, movePages, removePages, rotatePages } from './model/pages'
-import type { Annotation, Page, Source, Sources } from './model/types'
+import { clampRect, normalizeCrop, sameCropFor } from './model/crop'
+import type { OcrPage, OcrResults } from './model/ocr'
+import { cropPages, duplicatePages, insertPages, movePages, removePages, rotatePages } from './model/pages'
+import type { Annotation, Page, Rect, Source, Sources } from './model/types'
 
 export interface State {
   history: History<Page[]>
   sources: Sources
+  /**
+   * Form fields the user filled in. Kept out of the undo history on purpose: undoing a page
+   * operation must never take back typed text, and a field edit is no page edit.
+   */
+  fields: FieldValues
+  /** Text read from scans, by source page. Outside the history for the same reason as `fields`. */
+  ocr: OcrResults
   selection: string[]
   anchor: string | null
   /** The page shown in the viewer. */
@@ -23,6 +33,8 @@ export type Action =
   | { type: 'nudge'; delta: -1 | 1 }
   | { type: 'rotate'; delta: number }
   | { type: 'duplicate' }
+  /** Crops a page (null shows all of it again); the pages in `also` get the same rectangle relative to their size. */
+  | { type: 'crop'; pageId: string; crop: Rect | null; also?: string[] }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'select'; id: string; mode: 'single' | 'toggle' | 'range' }
@@ -31,7 +43,10 @@ export type Action =
   | { type: 'step'; delta: number; extend: boolean }
   | { type: 'scrolledTo'; id: string }
   | { type: 'title'; title: string }
-  | { type: 'restore'; title: string; pages: Page[]; sources: Sources }
+  | { type: 'restore'; title: string; pages: Page[]; sources: Sources; fields?: FieldValues; ocr?: OcrResults }
+  | { type: 'ocr'; sourceId: string; index: number; page: OcrPage }
+  /** Sets a field of a source; a null value drops the entry so the field shows the PDF's value again. */
+  | { type: 'field'; sourceId: string; name: string; value: FieldValue | null }
   | { type: 'annotate'; pageId: string; annotation: Annotation; select?: boolean }
   | { type: 'updateAnnotation'; pageId: string; annotation: Annotation }
   | { type: 'removeAnnotation'; pageId: string; id: string }
@@ -40,6 +55,8 @@ export type Action =
 export const initialState: State = {
   history: createHistory<Page[]>([]),
   sources: {},
+  fields: {},
+  ocr: {},
   selection: [],
   anchor: null,
   current: null,
@@ -89,6 +106,21 @@ export function reducer(state: State, action: Action): State {
       if (selected.size === 0) return state
       const r = duplicatePages(pages, selected, newId)
       return withSelection(edit(state, r.pages), r.copies)
+    }
+    case 'crop': {
+      const from = pages.find((p) => p.id === action.pageId)
+      if (!from) return state
+      const sizeOf = (p: Page) => state.sources[p.sourceId].pages[p.index]
+      const base = action.crop && clampRect(action.crop, sizeOf(from))
+      const crops = new Map<string, Rect | undefined>()
+      for (const p of pages) {
+        if (p === from) crops.set(p.id, normalizeCrop(base, sizeOf(p)))
+        else if (action.also?.includes(p.id)) {
+          const view = (q: Page) => ({ size: sizeOf(q), rotation: q.rotation })
+          crops.set(p.id, base ? sameCropFor(base, view(from), view(p)) : undefined)
+        }
+      }
+      return edit(state, cropPages(pages, crops))
     }
     case 'undo':
     case 'redo': {
@@ -148,12 +180,27 @@ export function reducer(state: State, action: Action): State {
     }
     case 'selectAnnotation':
       return { ...state, markup: action.target }
+    case 'field':
+      return setField(state, action.sourceId, action.name, action.value)
+    case 'ocr':
+      return { ...state, ocr: { ...state.ocr, [action.sourceId]: { ...state.ocr[action.sourceId], [action.index]: action.page } } }
     case 'restore':
       return withSelection(
-        { ...initialState, sources: action.sources, title: action.title, history: createHistory(action.pages) },
+        { ...initialState, sources: action.sources, fields: action.fields ?? {}, ocr: action.ocr ?? {}, title: action.title, history: createHistory(action.pages) },
         action.pages.slice(0, 1).map((p) => p.id),
       )
   }
+}
+
+function setField(state: State, sourceId: string, name: string, value: FieldValue | null): State {
+  const own = state.fields[sourceId] ?? {}
+  if (value === null ? !(name in own) : name in own && sameValue(own[name], value)) return state
+  const next = { ...own }
+  if (value === null) delete next[name]
+  else next[name] = value
+  const fields = { ...state.fields, [sourceId]: next }
+  if (Object.keys(next).length === 0) delete fields[sourceId]
+  return { ...state, fields }
 }
 
 function edit(state: State, pages: Page[]): State {
