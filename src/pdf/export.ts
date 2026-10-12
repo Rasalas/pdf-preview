@@ -1,4 +1,5 @@
 export { EncryptedPDFError } from 'pdf-lib'
+export { savingsMessage } from './compress'
 import {
   BlendMode,
   LineCapStyle,
@@ -25,6 +26,7 @@ import {
 } from 'pdf-lib'
 import { LINE_HEIGHT, TEXT_ASCENT, arrowHead, lineEnd, userSpaceMatrix } from '../model/annotations'
 import type { Annotation, Page, Point, Sources } from '../model/types'
+import { collectImages, compressImages, subProgress, type CompressStats } from './compress'
 
 const loaded = new Map<string, Promise<PDFDocument>>()
 
@@ -39,12 +41,22 @@ export function loadForExport(id: string, bytes: Uint8Array): Promise<PDFDocumen
   return doc
 }
 
+export interface BuildOptions {
+  /** Downsample and recompress images; text, fonts and vector graphics stay as they are. */
+  compress?: boolean
+  /** Receives what compression achieved just before the bytes are returned. */
+  onCompressed?: (stats: CompressStats) => void
+}
+
 export async function buildPdf(
   pages: Page[],
   sources: Sources,
   title: string,
   onProgress?: (done: number, total: number) => void,
+  options: BuildOptions = {},
 ): Promise<Uint8Array> {
+  // Compressing is the slow part, so building the pages takes only the first tenth of the bar.
+  const reportPage = options.compress ? subProgress(onProgress, 0, 0.1) : onProgress
   const out = await PDFDocument.create()
   out.setTitle(title)
   out.setProducer('Vorschau Web')
@@ -85,7 +97,12 @@ export async function buildPdf(
       if (page.annotations?.length) await drawAnnotations(out, pdfPage, 0, page.annotations, getFont)
       pdfPage.setRotation(degrees(page.rotation))
     }
-    onProgress?.(i + 1, pages.length)
+    reportPage?.(i + 1, pages.length)
+  }
+  if (options.compress) {
+    // Images of image sources are only embedded on flush.
+    await out.flush()
+    options.onCompressed?.(await compressImages(out, collectImages(out.getPages()), subProgress(onProgress, 0.1, 1)))
   }
   return out.save()
 }
