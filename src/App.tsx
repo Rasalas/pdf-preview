@@ -217,11 +217,11 @@ export default function App() {
         cancel,
       })
       try {
-        const source = await importFile(file, {
+        const added = await importFile(file, {
           askPassword: ({ name, wrong }) => new Promise((answer) => setPasswordRequest({ id: Math.random(), name, wrong, answer })),
           notify: (text) => toast(text, true),
         })
-        if (source) sources.push(source)
+        sources.push(...added)
       } catch (e) {
         console.error(e)
         toast(e instanceof ImportError ? e.message : `„${file.name}“ konnte nicht importiert werden.`)

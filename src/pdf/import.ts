@@ -1,9 +1,11 @@
 import { newId } from '../model/ids'
 import type { PageSize, Source } from '../model/types'
 import { PasswordError, UnsupportedEncryptionError, decryptPdf } from './decrypt'
+import { ImportError } from './errors'
+import { importImage } from './image-import'
 import { openPdf } from './pdfjs'
 
-export class ImportError extends Error {}
+export { ImportError }
 
 export interface ImportOptions {
   /** Resolves with the password, or null when the user skips the file. */
@@ -12,11 +14,7 @@ export interface ImportOptions {
   notify?: (text: string) => void
 }
 
-const PT_PER_PX = 72 / 96
-// Images become pages at 96 dpi, shrunk so the long edge is at most A4's.
-const MAX_IMAGE_EDGE = 842
-
-export const ACCEPT = 'application/pdf,.pdf,image/*,.heic,.heif'
+export const ACCEPT = 'application/pdf,.pdf,image/*,.heic,.heif,.tif,.tiff,.svg'
 
 // Some systems hand over files without a MIME type, so the extension counts too.
 const IMAGE_TYPES: Record<string, string> = {
@@ -29,12 +27,18 @@ const IMAGE_TYPES: Record<string, string> = {
   avif: 'image/avif',
   heic: 'image/heic',
   heif: 'image/heif',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  svg: 'image/svg+xml',
 }
 
-/** Resolves with null when the user skips a password-protected file. */
-export async function importFile(file: File, options: ImportOptions = {}): Promise<Source | null> {
+/** Most files make one source, a TIFF one per page, and a skipped password-protected PDF none. */
+export async function importFile(file: File, options: ImportOptions = {}): Promise<Source[]> {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
-  if (file.type === 'application/pdf' || ext === 'pdf') return importPdf(file, options)
+  if (file.type === 'application/pdf' || ext === 'pdf') {
+    const source = await importPdf(file, options)
+    return source ? [source] : []
+  }
   const type = file.type.startsWith('image/') ? file.type : IMAGE_TYPES[ext]
   if (type) return importImage(file, type)
   if (file.size === 0 && !file.type) throw new ImportError(`„${file.name}“ ist ein Ordner oder leer. Bitte die Dateien darin auswählen.`)
@@ -101,50 +105,6 @@ async function unlock(file: File, bytes: Uint8Array, { askPassword, notify }: Im
     if (next === null) return null
     password = next
   }
-}
-
-async function importImage(file: File, type: string): Promise<Source> {
-  let bitmap: ImageBitmap
-  try {
-    bitmap = await createImageBitmap(file)
-  } catch {
-    if (/hei[cf]/.test(type)) {
-      throw new ImportError(
-        `„${file.name}“ ist ein HEIC-Foto, das dieser Browser nicht öffnen kann. In Safari klappt es, sonst das Foto vorher als JPEG exportieren.`,
-      )
-    }
-    throw new ImportError(`Das Bild „${file.name}“ kann dieser Browser nicht öffnen.`)
-  }
-  const { width, height } = bitmap
-  let bytes: Uint8Array = new Uint8Array(await file.arrayBuffer())
-  // Trust the content, not the name: a PNG called .jpg would otherwise fail at export.
-  let mime = sniffImage(bytes)
-  if (!mime) {
-    // PDF only embeds PNG and JPEG directly; convert everything else once, losslessly.
-    const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
-    canvas.getContext('2d')!.drawImage(bitmap, 0, 0)
-    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'))
-    bytes = new Uint8Array(await blob!.arrayBuffer())
-    mime = 'image/png'
-  }
-  bitmap.close()
-  const scale = Math.min(PT_PER_PX, MAX_IMAGE_EDGE / Math.max(width, height))
-  return {
-    id: newId(),
-    name: file.name,
-    kind: 'image',
-    mime,
-    bytes,
-    pages: [{ width: width * scale, height: height * scale }],
-  }
-}
-
-export function sniffImage(bytes: Uint8Array): 'image/png' | 'image/jpeg' | null {
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png'
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
-  return null
 }
 
 export function blankSource(size: PageSize): Source {
