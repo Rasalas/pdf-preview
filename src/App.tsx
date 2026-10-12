@@ -198,7 +198,7 @@ export default function App() {
         cancel,
       })
       try {
-        sources.push(await importFile(file))
+        sources.push(...(await importFile(file)))
       } catch (e) {
         console.error(e)
         toast(e instanceof ImportError ? e.message : `„${file.name}“ konnte nicht importiert werden.`)

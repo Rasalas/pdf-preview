@@ -8,7 +8,7 @@ const { version } = JSON.parse(readFileSync(new URL('./package.json', import.met
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), pdfjsAssets()],
+  plugins: [react(), pdfjsAssets(), libheifAssets()],
   // Relative paths, so the same build works on GitHub Pages, GitLab Pages and in the desktop app.
   base: './',
   worker: { format: 'es' },
@@ -37,6 +37,30 @@ function pdfjsAssets(): Plugin {
     },
     generateBundle() {
       for (const file of files) this.emitFile({ type: 'asset', fileName: `pdfjs/${file}`, source: readFileSync(join(root, file)) })
+    },
+  }
+}
+
+/**
+ * libheif opens HEIC photos in browsers that cannot (public/heif/worker.js loads it). It is LGPL-3.0,
+ * so it ships as an untouched separate file with its licence text beside it. Served under heif/.
+ */
+function libheifAssets(): Plugin {
+  const root = fileURLToPath(new URL('./node_modules/libheif-js/libheif-wasm/', import.meta.url))
+  const files: Record<string, string> = { 'libheif.js': 'libheif.js', 'libheif.wasm': 'libheif.wasm', 'LICENSE.txt': 'LICENSE' }
+  const types: Record<string, string> = { '.wasm': 'application/wasm', '.js': 'text/javascript', '.txt': 'text/plain' }
+  return {
+    name: 'libheif-assets',
+    configureServer(server) {
+      server.middlewares.use('/heif/', (req, res, next) => {
+        const name = decodeURIComponent(req.url!.split('?')[0].slice(1))
+        if (!files[name]) return next()
+        res.setHeader('Content-Type', types[extname(name)])
+        res.end(readFileSync(join(root, files[name])))
+      })
+    },
+    generateBundle() {
+      for (const [name, file] of Object.entries(files)) this.emitFile({ type: 'asset', fileName: `heif/${name}`, source: readFileSync(join(root, file)) })
     },
   }
 }

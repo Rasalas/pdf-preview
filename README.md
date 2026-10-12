@@ -12,7 +12,8 @@ Eine Web-App nach dem Vorbild der macOS-App Vorschau. Dateien werden ausschließ
 
 ## Was die App kann
 
-- **Zusammenstellen:** PDFs und Bilder hineinziehen, gezielt zwischen zwei Seiten einfügen, Seiten per Drag & Drop umsortieren, drehen, duplizieren, löschen und leere Seiten einfügen.
+- **Zusammenstellen:** PDFs und Bilder (JPEG, PNG, TIFF, HEIC, WebP, GIF, BMP, AVIF, SVG) hineinziehen, gezielt zwischen zwei Seiten einfügen, Seiten per Drag & Drop umsortieren, drehen, duplizieren, löschen und leere Seiten einfügen.
+- **Bilder:** Mehrseitige TIFF-Scans (Fax- und Scanner-Kompression) werden zu einer Seite je Blatt, die Auflösung bestimmt die Seitengröße, ein 300-dpi-Scan wird also A4. iPhone-Fotos (HEIC) öffnen auch in Chrome und Firefox. Die Drehung aus den Fotodaten (EXIF) gilt in der Vorschau und im gesicherten PDF gleich, JPEGs bleiben dabei unverändert.
 - **Markieren:** Text hervorheben, frei zeichnen, Rechtecke, Ovale, Linien, Pfeile, Textfelder und die eigene Unterschrift. Alles lässt sich verschieben, skalieren und umfärben.
 - **Lesen:** Text auswählen und kopieren, im ganzen Dokument suchen, Treffer pro Seite in der Seitenleiste.
 - **Sichern:** als neues PDF oder nur die ausgewählten Seiten, außerdem Drucken. Originalseiten bleiben unverändert erhalten, Text bleibt durchsuchbar.
@@ -73,6 +74,7 @@ Aktuelle Versionen von Chrome, Edge, Firefox und Safari (macOS und iPadOS). Gete
 - Verschlüsselte PDFs werden beim Import abgelehnt.
 - Die Suche findet keine Begriffe, die in der PDF auf zwei Textstücke verteilt sind; Scans ohne Textebene sind nicht durchsuchbar.
 - Markierungen werden beim Sichern fest in den Seiteninhalt geschrieben und sind danach in anderen Programmen nicht mehr einzeln bearbeitbar.
+- Animierte GIF- und WebP-Dateien zeigen nur das erste Bild. Bilder, die erst umgewandelt werden müssen (alles außer JPEG und PNG), werden ab etwa 16 Megapixeln verkleinert; BigTIFF und TIFF mit seltener Kompression werden abgelehnt.
 - Textfelder nutzen Helvetica; Zeichen außerhalb des westeuropäischen Zeichensatzes werden beim Sichern durch „?“ ersetzt.
 - Noch nicht umgesetzt: Formulare, Komprimieren, Texterkennung (OCR).
 
@@ -104,4 +106,4 @@ Die Builds unterscheiden sich nur in den Angaben zu Hoster, Datenschutz und Impr
 
 ## Lizenz
 
-[MIT](LICENSE) © Torben Buck. Verwendet [pdf.js](https://mozilla.github.io/pdf.js/) (Apache 2.0) und [pdf-lib](https://pdf-lib.js.org/) (MIT).
+[MIT](LICENSE) © Torben Buck. Verwendet [pdf.js](https://mozilla.github.io/pdf.js/) (Apache 2.0), [pdf-lib](https://pdf-lib.js.org/) (MIT) und [UTIF.js](https://github.com/photopea/UTIF.js) (MIT). Für HEIC-Fotos in Browsern ohne eigene Unterstützung dient [libheif](https://github.com/strukturag/libheif) mit libde265 (LGPL-3.0, verpackt in [libheif-js](https://github.com/catdad-experiments/libheif-js)). Es liegt unverändert als eigene Datei im Ordner `heif/` der App, wird nur bei Bedarf geladen und lässt sich dort durch eine andere Version ersetzen; der Lizenztext liegt daneben.

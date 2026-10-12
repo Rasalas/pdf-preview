@@ -19,7 +19,12 @@ export function loadPdfjs() {
 }
 
 const docs = new Map<string, Promise<PDFDocumentProxy>>()
+// Oldest first. Decoded images take 4 bytes per pixel, so only a budget's worth stays.
 const bitmaps = new Map<string, Promise<ImageBitmap>>()
+const bitmapPixels = new Map<string, number>()
+const BITMAP_BUDGET = 100_000_000
+// More than any screen shows; larger images (scans, 100 MP photos) are shrunk once decoded.
+const MAX_BITMAP_PIXELS = 4096 * 4096
 
 // Copied into the build by vite.config.ts. Absolute, because the worker resolves relative URLs against itself.
 const asset = (dir: string) => new URL(`pdfjs/${dir}/`, document.baseURI).href
@@ -46,11 +51,46 @@ export function openPdf(source: Pick<Source, 'id' | 'bytes'>): Promise<PDFDocume
 
 function openImage(source: Source): Promise<ImageBitmap> {
   let bitmap = bitmaps.get(source.id)
-  if (!bitmap) {
-    bitmap = createImageBitmap(new Blob([source.bytes! as BlobPart], { type: source.mime! }))
-    bitmaps.set(source.id, bitmap)
+  if (bitmap) bitmaps.delete(source.id) // re-added below, as the most recently used
+  else {
+    bitmap = decodeImage(source).then((b) => {
+      bitmapPixels.set(source.id, b.width * b.height)
+      evictBitmaps(source.id)
+      return b
+    })
+    bitmap.catch(() => bitmaps.delete(source.id))
   }
+  bitmaps.set(source.id, bitmap)
   return bitmap
+}
+
+async function decodeImage(source: Source): Promise<ImageBitmap> {
+  const bitmap = await createImageBitmap(new Blob([source.bytes! as BlobPart], { type: source.mime! }))
+  const pixels = bitmap.width * bitmap.height
+  if (pixels <= MAX_BITMAP_PIXELS) return bitmap
+  const scale = Math.sqrt(MAX_BITMAP_PIXELS / pixels)
+  const small = await createImageBitmap(bitmap, {
+    resizeWidth: Math.floor(bitmap.width * scale),
+    resizeHeight: Math.floor(bitmap.height * scale),
+    resizeQuality: 'high',
+  })
+  bitmap.close()
+  return small
+}
+
+function evictBitmaps(keep: string) {
+  let total = 0
+  for (const pixels of bitmapPixels.values()) total += pixels
+  for (const id of bitmaps.keys()) {
+    if (total <= BITMAP_BUDGET) break
+    if (id === keep || !bitmapPixels.has(id)) continue // still decoding
+    total -= bitmapPixels.get(id)!
+    const evicted = bitmaps.get(id)!
+    bitmaps.delete(id)
+    bitmapPixels.delete(id)
+    // A render may be about to draw it; closing right away would make that throw.
+    evicted.then((b) => setTimeout(() => b.close(), 5000))
+  }
 }
 
 // Rendering many pages at once starves the main thread; queue them.
