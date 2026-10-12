@@ -254,3 +254,10 @@ export async function renderTextLayer(
   container.replaceChildren(target)
   return layer.textDivs
 }
+
+/** Renders a page as displayed into a new canvas that is exactly `pixelWidth` pixels wide, whatever the screen's pixel ratio. */
+export async function renderPixels(source: Source, index: number, rotation: Rotation, pixelWidth: number, signal: AbortSignal): Promise<HTMLCanvasElement> {
+  const canvas = document.createElement('canvas')
+  await renderPage(canvas, source, index, rotation, pixelWidth / Math.min(window.devicePixelRatio || 1, 2), signal)
+  return canvas
+}

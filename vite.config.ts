@@ -8,7 +8,7 @@ const { version } = JSON.parse(readFileSync(new URL('./package.json', import.met
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), pdfjsAssets(), libheifAssets()],
+  plugins: [react(), pdfjsAssets(), libheifAssets(), ocrAssets()],
   // Relative paths, so the same build works on GitHub Pages, GitLab Pages and in the desktop app.
   base: './',
   worker: { format: 'es' },
@@ -61,6 +61,38 @@ function libheifAssets(): Plugin {
     },
     generateBundle() {
       for (const [name, file] of Object.entries(files)) this.emitFile({ type: 'asset', fileName: `heif/${name}`, source: readFileSync(join(root, file)) })
+    },
+  }
+}
+
+/**
+ * Text recognition runs from our own origin: tesseract.js would fetch its worker and engine from a CDN
+ * by default. Only the LSTM engines are copied (three, for browsers with and without SIMD); the language
+ * data lives in public/ocr/lang. Served under ocr/.
+ */
+function ocrAssets(): Plugin {
+  const dir = (name: string) => fileURLToPath(new URL(`./node_modules/${name}/`, import.meta.url))
+  const [js, core] = [dir('tesseract.js'), dir('tesseract.js-core')]
+  const files: Record<string, string> = {
+    'worker.min.js': join(js, 'dist/worker.min.js'),
+    'worker.min.js.LICENSE.txt': join(js, 'dist/worker.min.js.LICENSE.txt'),
+    'LICENSE-tesseract.js.txt': join(js, 'LICENSE.md'),
+    'LICENSE-tesseract.js-core.txt': join(core, 'LICENSE'),
+  }
+  for (const file of readdirSync(core).filter((f) => f.endsWith('-lstm.wasm.js'))) files[`core/${file}`] = join(core, file)
+  const types: Record<string, string> = { '.js': 'text/javascript', '.txt': 'text/plain' }
+  return {
+    name: 'ocr-assets',
+    configureServer(server) {
+      server.middlewares.use('/ocr/', (req, res, next) => {
+        const name = decodeURIComponent(req.url!.split('?')[0].slice(1))
+        if (!files[name]) return next()
+        res.setHeader('Content-Type', types[extname(name)])
+        res.end(readFileSync(files[name]))
+      })
+    },
+    generateBundle() {
+      for (const [name, file] of Object.entries(files)) this.emitFile({ type: 'asset', fileName: `ocr/${name}`, source: readFileSync(file) })
     },
   }
 }
