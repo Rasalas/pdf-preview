@@ -81,7 +81,7 @@ describe('buildPdf with form values', () => {
         hobby: ['Lesen', 'Musik'],
       },
     }
-    const out = await PDFDocument.load(await buildPdf(pages, { form: src }, 'Test', undefined, fields))
+    const out = await PDFDocument.load(await buildPdf(pages, { form: src }, 'Test', undefined, { fields }))
 
     expect(out.getPageCount()).toBe(1)
     expect(widgetCount(out)).toBe(0)
@@ -99,12 +99,12 @@ describe('buildPdf with form values', () => {
 
   it('leaves the cached document and unfilled sources as they were', async () => {
     const src = await source()
-    const filled = await buildPdf(pages, { form: src }, 'Test', undefined, { form: { name: 'A' } })
+    const filled = await buildPdf(pages, { form: src }, 'Test', undefined, { fields: { form: { name: 'A' } } })
     expect(widgetCount(await PDFDocument.load(filled))).toBe(0)
 
     const plain = await PDFDocument.load(await buildPdf(pages, { form: src }, 'Test'))
     expect(widgetCount(plain)).toBe(7 + 1)
-    const empty = await PDFDocument.load(await buildPdf(pages, { form: src }, 'Test', undefined, { form: {} }))
+    const empty = await PDFDocument.load(await buildPdf(pages, { form: src }, 'Test', undefined, { fields: { form: {} } }))
     expect(widgetCount(empty)).toBe(7 + 1)
   })
 
@@ -123,7 +123,7 @@ describe('buildPdf with form values', () => {
   it('keeps going when a field is unknown or the value does not fit', async () => {
     const src = await source()
     const out = await PDFDocument.load(
-      await buildPdf(pages, { form: src }, 'Test', undefined, { form: { gibtsnicht: 'x', size: 'Riesig', name: 'Eva' } }),
+      await buildPdf(pages, { form: src }, 'Test', undefined, { fields: { form: { gibtsnicht: 'x', size: 'Riesig', name: 'Eva' } } }),
     )
     expect(shownText(out)).toContain('Eva')
     expect(widgetCount(out)).toBe(0)
@@ -135,7 +135,7 @@ describe('buildPdf with form values', () => {
     doc.getForm().getDropdown('land').select('Deutschland')
     const src: Source = { ...(await source()), bytes: await doc.save() }
     const out = await PDFDocument.load(
-      await buildPdf(pages, { form: src }, 'Test', undefined, { form: { agree: 'Off', land: [] } }),
+      await buildPdf(pages, { form: src }, 'Test', undefined, { fields: { form: { agree: 'Off', land: [] } } }),
     )
     expect(shownText(out)).not.toContain('Deutschland')
   })

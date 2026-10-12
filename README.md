@@ -16,7 +16,7 @@ Eine Web-App nach dem Vorbild der macOS-App Vorschau. Dateien werden ausschließ
 - **Markieren:** Text hervorheben, frei zeichnen, Rechtecke, Ovale, Linien, Pfeile, Textfelder und die eigene Unterschrift. Alles lässt sich verschieben, skalieren und umfärben.
 - **Lesen:** Text auswählen und kopieren, im ganzen Dokument suchen, Treffer pro Seite in der Seitenleiste. Passwortgeschützte PDFs öffnen nach Eingabe des Passworts.
 - **Ausfüllen:** Formulare direkt in der App ausfüllen: Textfelder (auch mehrzeilig und als Kästchenreihe), Ankreuzfelder, Optionen, Auswahllisten. Ein Feld, das auf mehreren Seiten vorkommt, zeigt überall denselben Wert. Eingaben überstehen ein Neuladen und stehen beim Sichern und Drucken im PDF.
-- **Sichern:** als neues PDF oder nur die ausgewählten Seiten, außerdem Drucken. Originalseiten bleiben unverändert erhalten, Text bleibt durchsuchbar.
+- **Sichern:** als neues PDF oder nur die ausgewählten Seiten, außerdem Drucken. Originalseiten bleiben unverändert erhalten, Text bleibt durchsuchbar. „Kleiner sichern“ rechnet Fotos und Scans auf etwa 150 dpi herunter und komprimiert sie neu, damit das PDF durch Upload-Formulare und Mailserver passt; Text, Schriften und Vektorgrafiken bleiben unangetastet.
 - **Sicher arbeiten:** Widerrufen für jeden Schritt, und nach einem versehentlichen Neuladen lässt sich das Dokument wiederherstellen.
 
 ![Kurze Vorführung: Dateien ablegen, Seiten umsortieren, markieren, unterschreiben, suchen und sichern](docs/media/demo.gif)
@@ -77,7 +77,8 @@ Aktuelle Versionen von Chrome, Edge, Firefox und Safari (macOS und iPadOS). Gete
 - Markierungen werden beim Sichern fest in den Seiteninhalt geschrieben und sind danach in anderen Programmen nicht mehr einzeln bearbeitbar.
 - Textfelder und Formulareingaben nutzen Helvetica; Zeichen außerhalb des westeuropäischen Zeichensatzes werden beim Sichern durch „?“ ersetzt.
 - Formulare: Unterstützt sind PDF-Formulare nach AcroForm. XFA-Formulare, JavaScript in PDFs (Berechnungen, Prüfungen) und Signaturfelder fehlen. Gefüllt wird nur, solange kein Markierungswerkzeug aktiv ist. Beim Sichern und Drucken werden die Eingaben fest in die Seiten geschrieben, das Formular lässt sich danach nicht mehr ausfüllen. Kennwortfelder bleiben leer. „Widerrufen“ der App nimmt Eingaben nicht zurück (im Feld gilt das Widerrufen des Browsers), und die Suche findet sie nicht.
-- Noch nicht umgesetzt: Komprimieren, Texterkennung (OCR).
+- „Kleiner sichern“ fasst nur Bilder an (JPEG sowie Flate in RGB oder Grau) und ersetzt sie nur, wenn das Ergebnis spürbar kleiner ist. Bilder in CMYK, Indexed, JBIG2, CCITT oder JPEG 2000 und Bilder mit Farbschlüsselmaske bleiben unverändert. Das Ergebnis hängt vom Browser ab, weil jeder JPEGs anders schreibt; Safari vor 16.4 rechnet nur JPEG-Bilder neu.
+- Noch nicht umgesetzt: Texterkennung (OCR).
 
 ## Entwicklung
 

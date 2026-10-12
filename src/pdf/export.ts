@@ -1,3 +1,4 @@
+export { savingsMessage } from './compress'
 import {
   BlendMode,
   EncryptedPDFError,
@@ -26,6 +27,7 @@ import {
 import { LINE_HEIGHT, TEXT_ASCENT, arrowHead, lineEnd, userSpaceMatrix } from '../model/annotations'
 import type { FieldValue, FieldValues } from '../model/forms'
 import type { Annotation, Page, Point, Source, Sources } from '../model/types'
+import { collectImages, compressImages, subProgress, type CompressStats } from './compress'
 import { encodable } from './encodable'
 import { fillForm } from './fill'
 
@@ -55,13 +57,24 @@ async function documentFor(source: Source, entered: Record<string, FieldValue> |
   return doc
 }
 
+export interface BuildOptions {
+  /** Form entries per source, written into the pages. */
+  fields?: FieldValues
+  /** Downsample and recompress images; text, fonts and vector graphics stay as they are. */
+  compress?: boolean
+  /** Receives what compression achieved just before the bytes are returned. */
+  onCompressed?: (stats: CompressStats) => void
+}
+
 export async function buildPdf(
   pages: Page[],
   sources: Sources,
   title: string,
   onProgress?: (done: number, total: number) => void,
-  fields: FieldValues = {},
+  options: BuildOptions = {},
 ): Promise<Uint8Array> {
+  // Compressing is the slow part, so building the pages takes only the first tenth of the bar.
+  const reportPage = options.compress ? subProgress(onProgress, 0, 0.1) : onProgress
   const out = await PDFDocument.create()
   out.setTitle(title)
   out.setProducer('Vorschau Web')
@@ -73,7 +86,7 @@ export async function buildPdf(
     const source = sources[sourceId]
     if (source.kind !== 'pdf' || !source.bytes) continue
     const own = pages.filter((p) => p.sourceId === sourceId)
-    const doc = await documentFor(source, fields[source.id])
+    const doc = await documentFor(source, options.fields?.[source.id])
     const copies = await out.copyPages(doc, own.map((p) => p.index))
     own.forEach((p, i) => copied.set(p, copies[i]))
   }
@@ -102,7 +115,12 @@ export async function buildPdf(
       if (page.annotations?.length) await drawAnnotations(out, pdfPage, 0, page.annotations, getFont)
       pdfPage.setRotation(degrees(page.rotation))
     }
-    onProgress?.(i + 1, pages.length)
+    reportPage?.(i + 1, pages.length)
+  }
+  if (options.compress) {
+    // Images of image sources are only embedded on flush.
+    await out.flush()
+    options.onCompressed?.(await compressImages(out, collectImages(out.getPages()), subProgress(onProgress, 0.1, 1)))
   }
   return out.save()
 }

@@ -13,6 +13,7 @@ import { PAGES_MIME, Sidebar } from './components/Sidebar'
 import { Viewer, type ActiveHit, type Markup, type Zoom } from './components/Viewer'
 import { rotatedSize } from './model/pages'
 import type { Page } from './model/types'
+import type { CompressStats } from './pdf/compress'
 import { A4, ACCEPT, ImportError, blankSource, importFile } from './pdf/import'
 import { countMatches, normalizeQuery, pageStrings } from './pdf/text'
 import { clearSession, loadSession, saveSession, type Session } from './persist'
@@ -252,18 +253,26 @@ export default function App() {
     dispatch({ type: 'import', sources: [blankSource(ref ? rotatedSize(size, ref.rotation) : A4)], before: pages[at]?.id ?? null })
   }
 
-  const exportPdf = async (list: Page[], suffix = '') => {
+  const exportPdf = async (list: Page[], suffix = '', compress = false) => {
     if (list.length === 0) return
     const title = state.title.trim() || 'Unbenannt'
     let cancelled = false
-    setTask({ label: 'PDF wird erstellt', progress: 0, cancel: () => (cancelled = true) })
+    let stats: CompressStats | undefined
+    setTask({ label: compress ? 'Kleineres PDF wird erstellt' : 'PDF wird erstellt', progress: 0, cancel: () => (cancelled = true) })
     try {
-      const { buildPdf } = await import('./pdf/export')
-      const bytes = await buildPdf(list, state.sources, title, (done, total) => {
-        if (cancelled) throw new DOMException('Abgebrochen', 'AbortError')
-        setTask((t) => t && { ...t, progress: done / total })
-      }, state.fields)
+      const { buildPdf, savingsMessage } = await import('./pdf/export')
+      const bytes = await buildPdf(
+        list,
+        state.sources,
+        title,
+        (done, total) => {
+          if (cancelled) throw new DOMException('Abgebrochen', 'AbortError')
+          setTask((t) => t && { ...t, progress: done / total })
+        },
+        { fields: state.fields, compress, onCompressed: (s) => (stats = s) },
+      )
       await download(bytes, `${title}${suffix}.pdf`)
+      if (stats) toast(savingsMessage(bytes.length, stats), true)
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {
         console.error(e)
@@ -282,7 +291,7 @@ export default function App() {
     setTask({ label: 'Druck wird vorbereitet', progress: null })
     try {
       const { buildPdf } = await import('./pdf/export')
-      const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt', undefined, state.fields)
+      const bytes = await buildPdf(pages, state.sources, state.title || 'Unbenannt', undefined, { fields: state.fields })
       if (isDesktop) {
         const { openInSystemViewer } = await import('./desktop')
         await openInSystemViewer(bytes, `${state.title || 'Unbenannt'}.pdf`)
@@ -456,6 +465,7 @@ export default function App() {
 
   const documentMenu = (): MenuItem[] => [
     { label: 'Als PDF sichern …', shortcut: `${MOD}S`, disabled: !pages.length, run: () => exportPdf(pages) },
+    { label: 'Kleiner sichern …', disabled: !pages.length, run: () => exportPdf(pages, ' – klein', true) },
     { label: `Auswahl sichern (${count}) …`, disabled: !has || count === pages.length, run: () => exportPdf(selectedPages, ' – Auswahl') },
     { label: 'Drucken …', shortcut: `${MOD}P`, disabled: !pages.length, run: print },
     'separator',
