@@ -96,6 +96,14 @@ describe('pageFromRecognition', () => {
     expect(pageFromRecognition(null, 1, size, 0).lines).toEqual([])
   })
 
+  it('keeps nothing from a page the engine is unsure about throughout, like one read sideways', () => {
+    const sure = (text: string, x: number) => word(text, x, 0, x + 40, 20, 92)
+    const unsure = (text: string, x: number) => word(text, x, 0, x + 40, 20, 62)
+    const page = (w: typeof sure) => pageFromRecognition(block({ words: [w('ab', 0), w('cd', 50), w('ef', 100)] }), 1, size, 0)
+    expect(page(sure).lines).toHaveLength(1)
+    expect(page(unsure)).toEqual({ rotation: 0, lines: [] })
+  })
+
   it('stores boxes in page space for a page that was turned when it was read', () => {
     // Read after turning right: the reading page is 300 wide and 200 tall.
     const page = pageFromRecognition(block({ words: [word('Quer', 20, 40, 100, 60)] }), 2, size, 90)

@@ -11,18 +11,26 @@ let worker: Promise<Worker> | undefined
 let idle: ReturnType<typeof setTimeout> | undefined
 let onProgress: ((fraction: number) => void) | undefined
 
-async function start(): Promise<Worker> {
-  const { createWorker } = await import('tesseract.js')
-  return createWorker(['deu', 'eng'], LSTM_ONLY, {
-    workerPath: asset('worker.min.js'),
-    corePath: asset('core'),
-    langPath: asset('lang'),
-    // The worker script is same-origin, so it needs no blob wrapper (which strict CSPs would block).
-    workerBlobURL: false,
-    cacheMethod: 'none',
-    logger: (m) => {
-      if (m.status === 'recognizing text') onProgress?.(m.progress)
-    },
+function start(): Promise<Worker> {
+  return new Promise((resolve, reject) => {
+    // tesseract.js never settles its promise when the language data cannot be loaded; only this handler hears of it.
+    const fail = (e: unknown) => reject(new Error(String(e)))
+    import('tesseract.js')
+      .then(({ createWorker }) =>
+        createWorker(['deu', 'eng'], LSTM_ONLY, {
+          workerPath: asset('worker.min.js'),
+          corePath: asset('core'),
+          langPath: asset('lang'),
+          // The worker script is same-origin, so it needs no blob wrapper (which strict CSPs would block).
+          workerBlobURL: false,
+          cacheMethod: 'none',
+          logger: (m) => {
+            if (m.status === 'recognizing text') onProgress?.(m.progress)
+          },
+          errorHandler: fail,
+        }),
+      )
+      .then(resolve, reject)
   })
 }
 
@@ -67,17 +75,23 @@ export async function recognize(canvas: HTMLCanvasElement, dpi: number, progress
     // The engine takes raw file bytes; its typings only list the other kinds of image.
     const { data } = await tesseract.recognize(image as unknown as Parameters<Worker['recognize']>[0], {}, { blocks: true })
     return data.blocks
+  } catch (e) {
+    // After an engine error (out of memory, say) the next page gets a fresh one.
+    drop()
+    throw e
   } finally {
     onProgress = undefined
   }
 }
 
+function drop() {
+  const old = worker
+  worker = undefined
+  old?.then((w) => w.terminate()).catch(() => undefined)
+}
+
 /** The engine's memory never shrinks, so it goes away once a batch is done. */
 export function release(): void {
   clearTimeout(idle)
-  idle = setTimeout(() => {
-    const old = worker
-    worker = undefined
-    old?.then((w) => w.terminate()).catch(() => undefined)
-  }, 15_000)
+  idle = setTimeout(drop, 15_000)
 }

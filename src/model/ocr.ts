@@ -32,6 +32,8 @@ const MEANINGFUL_CHARS = 20
 // as a whole first: the odd good guess inside a line of garbage does not make it text.
 const MIN_WORD_CONFIDENCE = 30
 const MIN_LINE_CONFIDENCE = 40
+// Real pages average above 85 in the words that remain, pages read the wrong way round about 65.
+const MIN_PAGE_CONFIDENCE = 75
 
 const alphanumeric = /[\p{L}\p{N}]/gu
 
@@ -104,30 +106,39 @@ const round = (n: number) => Math.round(n * 100) / 100
  */
 export function pageFromRecognition(blocks: RawBlock[] | null, scale: number, size: PageSize, rotation: Rotation): OcrPage {
   const lines: OcrLine[] = []
+  const confidences: number[] = []
   for (const block of blocks ?? []) {
     for (const paragraph of block.paragraphs) {
       for (const raw of paragraph.lines) {
         if (lineConfidence(raw) < MIN_LINE_CONFIDENCE) continue
-        const words = raw.words.flatMap((w) => toWord(w, raw, scale, size, rotation))
+        const words: OcrWord[] = []
+        for (const w of raw.words) {
+          const word = toWord(w, raw, scale, size, rotation)
+          if (!word) continue
+          words.push(word)
+          confidences.push(w.confidence)
+        }
         if (words.length) lines.push({ words })
       }
     }
   }
-  return { rotation, lines }
+  // Reading a page sideways or upside down yields plenty of words, but none the engine is sure of.
+  const mean = confidences.reduce((sum, c) => sum + c, 0) / (confidences.length || 1)
+  return { rotation, lines: mean < MIN_PAGE_CONFIDENCE ? [] : lines }
 }
 
 function lineConfidence({ confidence, words }: RawLine): number {
   return confidence ?? words.reduce((sum, w) => sum + w.confidence, 0) / (words.length || 1)
 }
 
-function toWord(w: RawLine['words'][number], line: RawLine, scale: number, size: PageSize, rotation: Rotation): OcrWord[] {
+function toWord(w: RawLine['words'][number], line: RawLine, scale: number, size: PageSize, rotation: Rotation): OcrWord | null {
   const text = w.text.trim()
   const { x0, y0, x1, y1 } = w.bbox
-  if (!text || w.confidence < MIN_WORD_CONFIDENCE || x1 <= x0 || y1 <= y0) return []
+  if (!text || w.confidence < MIN_WORD_CONFIDENCE || x1 <= x0 || y1 <= y0) return null
   const band = lineBand(line, w.bbox)
   const read: Rect = { x: x0 / scale, y: band.top / scale, w: (x1 - x0) / scale, h: (band.bottom - band.top) / scale }
   const { x, y, w: width, h } = fromReadingRect(read, size, rotation)
-  return [{ text, x: round(x), y: round(y), w: round(width), h: round(h) }]
+  return { text, x: round(x), y: round(y), w: round(width), h: round(h) }
 }
 
 /**

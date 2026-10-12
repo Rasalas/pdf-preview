@@ -50,6 +50,7 @@ async function run(jobs: Awaited<ReturnType<typeof planRecognition>>, { dispatch
   const { recognizePages } = await import('./recognize')
   let cancelled = false
   let withText = 0
+  let empty = 0
   let finished = 0
   let last = 0
   const show = (fraction: number) => {
@@ -75,6 +76,7 @@ async function run(jobs: Awaited<ReturnType<typeof planRecognition>>, { dispatch
       progress: (fraction) => !cancelled && show(fraction),
       page: ({ source, index }, page) => {
         if (page.lines.length) withText++
+        else empty++
         dispatch({ type: 'ocr', sourceId: source.id, index, page })
       },
     })
@@ -85,8 +87,9 @@ async function run(jobs: Awaited<ReturnType<typeof planRecognition>>, { dispatch
       toast(withText ? `Abgebrochen. Text auf ${withText} von ${jobs.length} ${pagesWord(jobs.length)} erkannt.` : 'Abgebrochen.', true)
     } else if (withText) {
       toast(`Text auf ${withText} ${pagesWord(withText)} erkannt. Er lässt sich nun suchen und kopieren, und das gesicherte PDF ist durchsuchbar.`, true)
+      if (empty) toast(`${empty === 1 ? 'Auf einer Seite' : `Auf ${empty} Seiten`} wurde kein Text gefunden. Liegt eine Seite seitlich, zuerst aufrichten.`, true)
     } else if (!outcome.failed.length) {
-      toast('Es wurde kein Text gefunden.', true)
+      toast('Es wurde kein Text gefunden. Liegt die Seite seitlich, zuerst aufrichten.', true)
     }
   } catch (e) {
     console.error('Texterkennung konnte nicht starten', e)
