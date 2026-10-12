@@ -1,6 +1,6 @@
 [package]
 name = "pdf-preview"
-version = "0.1.1"
+version = "0.2.0"
 description = "PDFs kombinieren, sortieren und markieren"
 authors = ["Torben Buck"]
 license = "MIT"
