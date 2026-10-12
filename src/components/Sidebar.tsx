@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import { rotatedSize } from '../model/pages'
+import type { FieldValues } from '../model/forms'
 import type { Page, Sources } from '../model/types'
+import { pageEntries } from '../pdf/forms'
 import { thumbnailUrl } from '../pdf/pdfjs'
+import { useSettled } from '../useSettled'
 import { AnnotationLayer } from './AnnotationLayer'
 
 export const PAGES_MIME = 'application/x-vorschau-pages'
@@ -9,6 +12,8 @@ export const PAGES_MIME = 'application/x-vorschau-pages'
 interface Props {
   pages: Page[]
   sources: Sources
+  /** Form entries, so thumbnails show them. */
+  fields: FieldValues
   selection: ReadonlySet<string>
   current: string | null
   width: number
@@ -24,7 +29,7 @@ interface Props {
   onTap?: (id: string) => void
 }
 
-export function Sidebar({ pages, sources, selection, current, width, onSelect, onMove, onDropFiles, onContextMenu, onKeyDown, hits, grid = false, onTap }: Props) {
+export function Sidebar({ pages, sources, fields, selection, current, width, onSelect, onMove, onDropFiles, onContextMenu, onKeyDown, hits, grid = false, onTap }: Props) {
   const list = useRef<HTMLDivElement>(null)
   const [gap, setGap] = useState<number | null>(null)
   const thumbWidth = width - 56
@@ -87,6 +92,7 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
           key={page.id}
           page={page}
           sources={sources}
+          entered={fields[page.sourceId]}
           number={i + 1}
           width={thumbWidth}
           selected={selection.has(page.id)}
@@ -115,6 +121,7 @@ function autoScroll(el: HTMLElement, y: number) {
 interface ThumbProps {
   page: Page
   sources: Sources
+  entered: FieldValues[string] | undefined
   number: number
   width: number
   selected: boolean
@@ -129,11 +136,12 @@ interface ThumbProps {
   root: React.RefObject<HTMLDivElement | null>
 }
 
-function Thumb({ page, sources, number, width, selected, current, hits, gapBefore, gapAfter, onSelect, onContextMenu, onDragEnd, onTap, root }: ThumbProps) {
+function Thumb({ page, sources, entered: enteredNow, number, width, selected, current, hits, gapBefore, gapAfter, onSelect, onContextMenu, onDragEnd, onTap, root }: ThumbProps) {
   const el = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
   const source = sources[page.sourceId]
+  const entered = useSettled(enteredNow, 500)
   const size = rotatedSize(source.pages[page.index], page.rotation)
   // Few distinct render widths, so resizing the sidebar mostly reuses cached thumbnails.
   const renderWidth = Math.ceil(width / 80) * 80
@@ -152,13 +160,15 @@ function Thumb({ page, sources, number, width, selected, current, hits, gapBefor
   useEffect(() => {
     if (!visible) return
     let live = true
-    thumbnailUrl(source, page.index, page.rotation, renderWidth)
+    pageEntries(source, page.index, entered)
+      .catch(() => null)
+      .then((entries) => thumbnailUrl(source, page.index, page.rotation, renderWidth, entries))
       .then((u) => live && setUrl(u))
       .catch((e) => console.error('Miniatur fehlgeschlagen', e))
     return () => {
       live = false
     }
-  }, [visible, source, page.index, page.rotation, renderWidth])
+  }, [visible, source, page.index, page.rotation, renderWidth, entered])
 
   return (
     <div
