@@ -7,6 +7,7 @@ import { MarkupBar } from './components/MarkupBar'
 import { SignatureDialog } from './components/SignatureDialog'
 import { Icon, type IconName } from './components/icons'
 import { Menu, type MenuItem } from './components/Menu'
+import type { PageActions } from './components/PageHover'
 import { PAGES_MIME, Sidebar } from './components/Sidebar'
 import { Viewer, type ActiveHit, type Markup, type Zoom } from './components/Viewer'
 import { rotatedSize } from './model/pages'
@@ -35,6 +36,13 @@ interface Toast {
   text: string
 }
 
+type MenuState = { x: number; y: number } & (
+  /** `from` is the page whose hover actions opened it. */
+  | { kind: 'page'; from?: string }
+  | { kind: 'gap'; at: number }
+  | { kind: 'document' | 'more' }
+)
+
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
   const pages = pagesOf(state)
@@ -48,7 +56,7 @@ export default function App() {
   const [scrollRequest, setScrollRequest] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(() => innerWidth > 720)
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem('sidebarWidth')) || 200)
-  const [menu, setMenu] = useState<{ x: number; y: number; kind: 'page' | 'document' | 'more' } | null>(null)
+  const [menu, setMenu] = useState<MenuState | null>(null)
   const compact = useMedia(COMPACT)
   const [searchOpen, setSearchOpen] = useState(false)
   const [selecting, setSelecting] = useState(false)
@@ -404,6 +412,32 @@ export default function App() {
     setMenu({ x: e.clientX, y: e.clientY, kind: 'page' })
   }
 
+  const gapMenu = (at: number): MenuItem[] => [
+    { label: 'Dateien hier einfügen …', run: () => openFiles(at) },
+    { label: 'Leere Seite hier einfügen', run: () => insertBlank(at) },
+  ]
+
+  /** A page's hover actions work on the selection when the page is part of it, else on the page alone. */
+  const onHoveredPage = (id: string, action: Action) => {
+    if (!selection.has(id)) dispatch({ type: 'select', id, mode: 'single' })
+    dispatch(action)
+  }
+
+  const below = (r: DOMRect) => ({ x: r.left, y: r.bottom + 6 })
+
+  const pageActions: PageActions = {
+    mod: MOD,
+    pinned: menu?.kind === 'gap' ? { gap: menu.at } : menu?.kind === 'page' && menu.from ? { page: menu.from } : null,
+    onRotate: (id, delta) => onHoveredPage(id, { type: 'rotate', delta }),
+    onRemove: (id) => onHoveredPage(id, { type: 'remove' }),
+    onMore: (id, anchor) => {
+      if (!selection.has(id)) dispatch({ type: 'select', id, mode: 'single' })
+      setMenu({ ...below(anchor), kind: 'page', from: id })
+    },
+    onGap: (at, anchor) => setMenu({ ...below(anchor), kind: 'gap', at }),
+    onAdd: () => openFiles(pages.length),
+  }
+
   const documentMenu = (): MenuItem[] => [
     { label: 'Als PDF sichern …', shortcut: `${MOD}S`, disabled: !pages.length, run: () => exportPdf(pages) },
     { label: `Auswahl sichern (${count}) …`, disabled: !has || count === pages.length, run: () => exportPdf(selectedPages, ' – Auswahl') },
@@ -702,10 +736,6 @@ export default function App() {
                   </button>
                   <ToolButton icon="zoomIn" label={`Vergrößern (${MOD}+)`} disabled={empty} onClick={() => zoomBy(1)} />
                 </div>
-                <div className="toolbar-group">
-                  <ToolButton icon="rotateLeft" label={`Nach links drehen (${MOD}L)`} disabled={!has} onClick={() => dispatch({ type: 'rotate', delta: -90 })} />
-                  <ToolButton icon="rotateRight" label={`Nach rechts drehen (${MOD}R)`} disabled={!has} onClick={() => dispatch({ type: 'rotate', delta: 90 })} />
-                </div>
               </>
             )}
             {compact && !empty ? <ToolButton icon="search" label="Im Dokument suchen" onClick={() => setSearchOpen(true)} /> : null}
@@ -717,10 +747,6 @@ export default function App() {
                 <div className="toolbar-group">
                   <ToolButton icon="undo" label={`Widerrufen (${MOD}Z)`} disabled={!canUndo} onClick={() => dispatch({ type: 'undo' })} />
                   <ToolButton icon="redo" label={`Wiederholen (⇧${MOD}Z)`} disabled={!canRedo} onClick={() => dispatch({ type: 'redo' })} />
-                </div>
-                <div className="toolbar-group">
-                  <ToolButton icon="trash" label="Ausgewählte Seiten löschen (⌫)" disabled={!has} onClick={() => dispatch({ type: 'remove' })} />
-                  <ToolButton icon="plus" label={`Dateien einfügen (${MOD}O)`} onClick={() => openFiles()} />
                 </div>
                 {empty ? null : searchField}
               </>
@@ -797,6 +823,7 @@ export default function App() {
                   onContextMenu={onThumbContextMenu}
                   onKeyDown={onSidebarKey}
                   hits={q ? hits.pages : null}
+                  actions={pageActions}
                 />
                 <div className="sidebar-resize" onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Seitenleistenbreite" />
               </aside>
@@ -881,7 +908,7 @@ export default function App() {
         />
       ) : null}
 
-      {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : menu.kind === 'more' ? moreMenu() : documentMenu()}
+      {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : menu.kind === 'more' ? moreMenu() : menu.kind === 'gap' ? gapMenu(menu.at) : documentMenu()}
           above={menu.kind === 'more'} onClose={() => setMenu(null)} /> : null}
 
       <div className="toasts" aria-live="polite">

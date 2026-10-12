@@ -12,7 +12,7 @@ Eine Web-App nach dem Vorbild der macOS-App Vorschau. Dateien werden ausschließ
 
 ## Was die App kann
 
-- **Zusammenstellen:** PDFs und Bilder hineinziehen, gezielt zwischen zwei Seiten einfügen, Seiten per Drag & Drop umsortieren, drehen, duplizieren, löschen und leere Seiten einfügen.
+- **Zusammenstellen:** PDFs und Bilder hineinziehen, gezielt zwischen zwei Seiten einfügen, Seiten per Drag & Drop umsortieren, drehen, duplizieren, löschen und leere Seiten einfügen. Die Aktionen liegen an den Seiten selbst: Über einer Miniatur erscheinen Drehen, Löschen und „Mehr“, zwischen zwei Miniaturen ein „+“ zum Einfügen von Dateien oder einer leeren Seite, und am Ende der Liste die Kachel „Dateien hinzufügen“.
 - **Markieren:** Text hervorheben, frei zeichnen, Rechtecke, Ovale, Linien, Pfeile, Textfelder und die eigene Unterschrift. Alles lässt sich verschieben, skalieren und umfärben.
 - **Lesen:** Text auswählen und kopieren, im ganzen Dokument suchen, Treffer pro Seite in der Seitenleiste.
 - **Sichern:** als neues PDF oder nur die ausgewählten Seiten, außerdem Drucken. Originalseiten bleiben unverändert erhalten, Text bleibt durchsuchbar.

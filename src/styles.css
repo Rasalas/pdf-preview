@@ -19,6 +19,7 @@
   --control-hover: rgb(0 0 0 / 0.08);
   --page-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.14), 0 2px 6px rgb(0 0 0 / 0.08), 0 10px 24px -12px rgb(0 0 0 / 0.22);
   --menu-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.18), 0 12px 32px -6px rgb(0 0 0 / 0.28);
+  --pill-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.18), 0 2px 8px -1px rgb(0 0 0 / 0.3);
 
   --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   font: 13px/1.4 var(--font);
@@ -46,6 +47,7 @@
     --control-hover: rgb(255 255 255 / 0.12);
     --page-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.6), 0 4px 16px rgb(0 0 0 / 0.4);
     --menu-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.12), 0 14px 36px -6px rgb(0 0 0 / 0.6);
+    --pill-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.16), 0 2px 8px -1px rgb(0 0 0 / 0.6);
   }
 }
 
@@ -149,7 +151,8 @@ button { font: inherit; color: inherit; }
 .workspace { position: relative; display: flex; min-height: 0; }
 
 .sidebar { position: relative; flex: none; display: flex; background: var(--sidebar); border-right: 1px solid var(--hairline); }
-.sidebar-list { flex: 1; overflow-y: auto; padding: 14px 0 24px; outline: none; scrollbar-width: thin; }
+.sidebar-list { position: relative; flex: 1; overflow-y: auto; padding: 14px 0 24px; scrollbar-width: thin; }
+.page-list { outline: none; }
 .sidebar-resize { position: absolute; top: 0; right: -4px; bottom: 0; width: 8px; cursor: col-resize; z-index: 2; }
 
 .thumb { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 7px 0; cursor: default; user-select: none; }
@@ -168,11 +171,11 @@ button { font: inherit; color: inherit; }
 .thumb-number { min-width: 22px; font-size: 11px; text-align: center; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .thumb.is-selected .thumb-frame { outline-color: var(--text-3); }
 .thumb.is-selected .thumb-number { color: var(--text); font-weight: 600; }
-.sidebar-list:focus-within .thumb.is-selected .thumb-frame { outline-color: var(--accent); }
-.sidebar-list:focus-within .thumb.is-selected .thumb-number { color: var(--accent); }
+.page-list:focus-within .thumb.is-selected .thumb-frame { outline-color: var(--accent); }
+.page-list:focus-within .thumb.is-selected .thumb-number { color: var(--accent); }
 
-/* Insertion marker */
-.thumb.gap-before::before, .thumb.gap-after::after {
+/* Insertion marker, also shown where the pointer rests between two pages. */
+.thumb.gap-before::before, .thumb.gap-after::after, .gap-hover {
   content: '';
   position: absolute;
   left: 18px;
@@ -185,6 +188,75 @@ button { font: inherit; color: inherit; }
 }
 .thumb.gap-before::before { top: -1.5px; }
 .thumb.gap-after::after { bottom: -1.5px; }
+.gap-hover { transform: translateY(-50%); animation: fade-in 0.1s; }
+
+/* Page actions under the pointer. Coordinates come from PageHover. */
+.thumb-actions {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--chrome-solid);
+  box-shadow: var(--pill-shadow);
+  transform: translate(-50%, calc(-100% - 6px));
+  animation: fade-in 0.12s 0.04s both;
+  user-select: none;
+}
+.thumb-actions button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-2);
+  cursor: default;
+}
+.thumb-actions button:hover { background: var(--control-hover); color: var(--text); }
+.thumb-actions button.is-danger:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.gap-add {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 0 0 1.5px var(--sidebar), 0 1px 3px rgb(0 0 0 / 0.3);
+  transform: translate(-50%, -50%);
+  animation: fade-in 0.1s;
+  cursor: default;
+}
+.gap-add::after { content: ''; position: absolute; inset: -5px; border-radius: 50%; }
+.gap-add:hover { background: var(--accent-strong); }
+
+.add-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 64px;
+  margin: 6px auto 0;
+  padding: 0 6px;
+  border: 1.5px dashed var(--text-3);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+  cursor: default;
+}
+.add-tile:hover, .add-tile.is-target { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
 
 .viewer { flex: 1; min-width: 0; overflow: auto; outline: none; background: var(--canvas); }
 .viewer-pages { display: flex; flex-direction: column; align-items: center; min-width: min-content; }
@@ -667,12 +739,12 @@ button { font: inherit; color: inherit; }
     animation: fade-in 0.15s ease-out;
   }
   .pages-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 0 16px; font-size: 15px; }
-  .sidebar-list.is-grid {
+  .sidebar-list.is-grid { padding: 8px 8px calc(24px + env(safe-area-inset-bottom)); }
+  .sidebar-list.is-grid .page-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     align-content: start;
     gap: 8px 4px;
-    padding: 8px 8px calc(24px + env(safe-area-inset-bottom));
   }
   .sidebar-list.is-grid .thumb { padding: 8px 0; justify-content: end; }
   .sidebar-list.is-grid .thumb-number { font-size: 13px; padding: 2px 9px; }

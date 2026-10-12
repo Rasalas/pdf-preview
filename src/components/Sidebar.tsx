@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type M
 import { rotatedSize } from '../model/pages'
 import type { Page, Sources } from '../model/types'
 import { thumbnailUrl } from '../pdf/pdfjs'
+import { FINE, useMedia } from '../useMedia'
 import { AnnotationLayer } from './AnnotationLayer'
+import { Icon } from './icons'
+import { PageHover, type PageActions } from './PageHover'
 
 export const PAGES_MIME = 'application/x-vorschau-pages'
 
@@ -22,11 +25,15 @@ interface Props {
   /** Touch layout: pages in a grid, a tap calls onTap instead of the desktop selection logic. */
   grid?: boolean
   onTap?: (id: string) => void
+  /** Desktop: actions on hovered pages, "+" between pages and a tile to append files. */
+  actions?: PageActions
 }
 
-export function Sidebar({ pages, sources, selection, current, width, onSelect, onMove, onDropFiles, onContextMenu, onKeyDown, hits, grid = false, onTap }: Props) {
+export function Sidebar({ pages, sources, selection, current, width, onSelect, onMove, onDropFiles, onContextMenu, onKeyDown, hits, grid = false, onTap, actions }: Props) {
   const list = useRef<HTMLDivElement>(null)
   const [gap, setGap] = useState<number | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const hoverable = useMedia(FINE) && !!actions
   const thumbWidth = width - 56
 
   useEffect(() => {
@@ -63,6 +70,7 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
     e.stopPropagation()
     const at = gapAt(e.clientX, e.clientY)
     setGap(null)
+    setDragging(false)
     if (e.dataTransfer.types.includes(PAGES_MIME)) onMove(at)
     else onDropFiles([...e.dataTransfer.files], at)
   }
@@ -71,36 +79,44 @@ export function Sidebar({ pages, sources, selection, current, width, onSelect, o
     <div
       ref={list}
       className={`sidebar-list${grid ? ' is-grid' : ''}`}
-      role="listbox"
-      aria-label="Seiten"
-      aria-multiselectable="true"
-      tabIndex={0}
-      onKeyDown={onKeyDown}
       onDragOver={onDragOver}
       onDragLeave={(e) => {
         if (!list.current!.contains(e.relatedTarget as Node)) setGap(null)
       }}
       onDrop={onDrop}
     >
-      {pages.map((page, i) => (
-        <Thumb
-          key={page.id}
-          page={page}
-          sources={sources}
-          number={i + 1}
-          width={thumbWidth}
-          selected={selection.has(page.id)}
-          current={page.id === current}
-          hits={hits?.get(page.id) ?? (hits ? 0 : null)}
-          gapBefore={gap === i}
-          gapAfter={gap === pages.length && i === pages.length - 1}
-          onSelect={onSelect}
-          onContextMenu={onContextMenu}
-          onDragEnd={() => setGap(null)}
-          onTap={onTap}
-          root={list}
-        />
-      ))}
+      <div className="page-list" role="listbox" aria-label="Seiten" aria-multiselectable="true" tabIndex={0} onKeyDown={onKeyDown}>
+        {pages.map((page, i) => (
+          <Thumb
+            key={page.id}
+            page={page}
+            sources={sources}
+            number={i + 1}
+            width={thumbWidth}
+            selected={selection.has(page.id)}
+            current={page.id === current}
+            hits={hits?.get(page.id) ?? (hits ? 0 : null)}
+            gapBefore={gap === i}
+            gapAfter={gap === pages.length && i === pages.length - 1}
+            onSelect={onSelect}
+            onContextMenu={onContextMenu}
+            onDragStart={() => setDragging(true)}
+            onDragEnd={() => {
+              setGap(null)
+              setDragging(false)
+            }}
+            onTap={onTap}
+            root={list}
+          />
+        ))}
+      </div>
+      {actions ? (
+        <button className={`add-tile${gap === pages.length ? ' is-target' : ''}`} style={{ width: thumbWidth }} onClick={actions.onAdd}>
+          <Icon name="plus" width={18} />
+          Dateien hinzufügen
+        </button>
+      ) : null}
+      {hoverable ? <PageHover root={list} pages={pages} selection={selection} actions={actions!} suspended={dragging || gap !== null} /> : null}
     </div>
   )
 }
@@ -124,12 +140,13 @@ interface ThumbProps {
   gapAfter: boolean
   onSelect: Props['onSelect']
   onContextMenu: Props['onContextMenu']
+  onDragStart: () => void
   onDragEnd: () => void
   onTap?: (id: string) => void
   root: React.RefObject<HTMLDivElement | null>
 }
 
-function Thumb({ page, sources, number, width, selected, current, hits, gapBefore, gapAfter, onSelect, onContextMenu, onDragEnd, onTap, root }: ThumbProps) {
+function Thumb({ page, sources, number, width, selected, current, hits, gapBefore, gapAfter, onSelect, onContextMenu, onDragStart, onDragEnd, onTap, root }: ThumbProps) {
   const el = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
@@ -184,6 +201,7 @@ function Thumb({ page, sources, number, width, selected, current, hits, gapBefor
       onDragStart={(e) => {
         e.dataTransfer.setData(PAGES_MIME, page.id)
         e.dataTransfer.effectAllowed = 'move'
+        onDragStart()
       }}
       onDragEnd={onDragEnd}
     >
