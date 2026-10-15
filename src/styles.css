@@ -190,25 +190,26 @@ button { font: inherit; color: inherit; }
 .thumb.gap-after::after { bottom: -1.5px; }
 .gap-hover { transform: translateY(-50%); animation: fade-in 0.1s; }
 
-/* Page actions under the pointer. Coordinates come from PageHover. */
+/* Page actions beside the hovered page. Coordinates come from PageHover. */
 .thumb-actions {
   position: absolute;
   z-index: 3;
   display: flex;
+  flex-direction: column;
   gap: 2px;
-  padding: 3px;
-  border-radius: 8px;
+  padding: 2px;
+  border-radius: 7px;
   background: var(--chrome-solid);
   box-shadow: var(--pill-shadow);
-  transform: translate(-50%, 6px);
+  transform: translateX(-100%);
   animation: fade-in 0.12s 0.04s both;
   user-select: none;
 }
 .thumb-actions button {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: 0;
   border-radius: 5px;
@@ -216,6 +217,8 @@ button { font: inherit; color: inherit; }
   color: var(--text-2);
   cursor: default;
 }
+/* Set apart, so a click meant for the buttons above does not delete. */
+.thumb-actions button.is-danger { margin-top: 6px; }
 .thumb-actions button:hover { background: var(--control-hover); color: var(--text); }
 .thumb-actions button.is-danger:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 .gap-add {
