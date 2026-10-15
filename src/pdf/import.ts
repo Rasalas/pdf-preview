@@ -52,8 +52,9 @@ async function importPdf(file: File, options: ImportOptions): Promise<Source | n
   let bytes: Uint8Array = new Uint8Array(await file.arrayBuffer())
   // pdf-lib must be able to read the file, or it could not be exported later.
   const { loadForExport, isEncryptedError } = await import('./export')
+  let parsed
   try {
-    await loadForExport(id, bytes)
+    parsed = await loadForExport(id, bytes)
   } catch (e) {
     if (!isEncryptedError(e)) throw unreadable(file)
     // From here on the source holds the decrypted bytes, so everything else works as for any PDF.
@@ -61,7 +62,7 @@ async function importPdf(file: File, options: ImportOptions): Promise<Source | n
     if (!plain) return null
     bytes = plain
     try {
-      await loadForExport(id, bytes)
+      parsed = await loadForExport(id, bytes)
     } catch {
       throw unreadable(file)
     }
@@ -78,7 +79,9 @@ async function importPdf(file: File, options: ImportOptions): Promise<Source | n
     pages.push({ width, height })
   }
   if (pages.length === 0) throw new ImportError(`„${file.name}“ enthält keine Seiten.`)
-  return { id, name: file.name, kind: 'pdf', mime: 'application/pdf', bytes, pages }
+  const { detectJbig2 } = await import('./jbig2')
+  const jbig2 = detectJbig2(parsed.getPages()) ?? undefined
+  return { id, name: file.name, kind: 'pdf', mime: 'application/pdf', bytes, pages, ...(jbig2 && { jbig2 }) }
 }
 
 /** Returns the unencrypted bytes, or null when the user skips the file. */

@@ -31,6 +31,7 @@ import { collectImages, compressImages, subProgress, type CompressStats } from '
 import { applyCrop } from './crop'
 import { encodable } from './encodable'
 import { fillForm } from './fill'
+import { convertJbig2 } from './jbig2'
 import { drawImage, embedImage, type EmbeddedImage } from './images'
 import { drawOcrText } from './ocr-text'
 
@@ -69,6 +70,8 @@ export interface BuildOptions {
   compress?: boolean
   /** Receives what compression achieved just before the bytes are returned. */
   onCompressed?: (stats: CompressStats) => void
+  /** Rewrite JBIG2 images losslessly as Flate, for programs that refuse JBIG2. */
+  withoutJbig2?: boolean
 }
 
 export async function buildPdf(
@@ -129,6 +132,7 @@ export async function buildPdf(
     }
     reportPage?.(i + 1, pages.length)
   }
+  if (options.withoutJbig2) await convertJbig2(out)
   if (options.compress) {
     // Images of image sources are only embedded on flush.
     await out.flush()

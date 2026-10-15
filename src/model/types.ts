@@ -14,6 +14,8 @@ export interface Source {
   mime: 'application/pdf' | 'image/png' | 'image/jpeg' | null
   bytes: Uint8Array | null
   pages: PageSize[]
+  /** Set when a PDF holds JBIG2 images; `symbols` when they may have been coded lossily (see pdf/jbig2.ts). */
+  jbig2?: 'lossless' | 'symbols'
 }
 
 export interface Rect {
