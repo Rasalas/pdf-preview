@@ -53,7 +53,7 @@ type MenuState = { x: number; y: number } & (
   /** `from` is the page whose hover actions opened it, `on` the page of a context menu. */
   | { kind: 'page'; from?: string; on?: string }
   | { kind: 'gap'; at: number }
-  | { kind: 'document' | 'more' }
+  | { kind: 'save' | 'document' | 'more' }
 )
 
 export default function App() {
@@ -514,6 +514,11 @@ export default function App() {
   }
 
   const below = (r: DOMRect) => ({ x: r.left, y: r.bottom + 6 })
+  // Right-aligned under a toolbar button; menus are 250px wide.
+  const openMenuBelow = (e: MouseEvent<HTMLButtonElement>, kind: 'save' | 'document') => {
+    const r = e.currentTarget.getBoundingClientRect()
+    setMenu({ x: r.right - 250, y: r.bottom + 6, kind })
+  }
 
   const pageActions: PageActions = {
     mod: MOD,
@@ -529,18 +534,25 @@ export default function App() {
     onAdd: () => openFiles(pages.length),
   }
 
-  const documentMenu = (): MenuItem[] => [
+  const closeDocument = () => {
+    dispatch({ type: 'selectAll' })
+    dispatch({ type: 'remove' })
+  }
+
+  const saveMenu = (): MenuItem[] => [
     { label: 'Als PDF sichern …', icon: 'save', shortcut: `${MOD}S`, disabled: !pages.length, run: () => exportPdf(pages) },
-    { label: 'Kleiner sichern …', icon: 'shrink', disabled: !pages.length, run: () => exportPdf(pages, ' – klein', true) },
     { label: `Auswahl sichern (${count}) …`, icon: 'export', disabled: !has || count === pages.length, run: () => exportPdf(selectedPages, ' – Auswahl') },
-    { label: 'Drucken …', icon: 'print', shortcut: `${MOD}P`, disabled: !pages.length, run: print },
     'separator',
-    { label: 'Text erkennen …', icon: 'scanText', disabled: !pages.length || !!task, run: () => recognise(pages) },
-    'separator',
+    { label: 'Kleiner sichern …', icon: 'shrink', disabled: !pages.length, run: () => exportPdf(pages, ' – klein', true) },
+  ]
+
+  const documentMenu = (): MenuItem[] => [
     { label: 'Dateien einfügen …', icon: 'file', shortcut: `${MOD}O`, run: () => openFiles() },
     { label: 'Leere Seite einfügen', icon: 'blank', run: () => insertBlank() },
     'separator',
-    { label: 'Dokument schließen', icon: 'closeDocument', disabled: !pages.length, run: () => { dispatch({ type: 'selectAll' }); dispatch({ type: 'remove' }) } },
+    { label: 'Text erkennen …', icon: 'scanText', disabled: !pages.length || !!task, run: () => recognise(pages) },
+    'separator',
+    { label: 'Dokument schließen', icon: 'closeDocument', disabled: !pages.length, run: closeDocument },
     'separator',
     { label: 'Über Vorschau und Datenschutz …', icon: 'info', run: () => setAbout(true) },
   ]
@@ -567,6 +579,9 @@ export default function App() {
     { label: 'Vergrößern', icon: 'zoomIn', run: () => zoomBy(1) },
     { label: 'Verkleinern', icon: 'zoomOut', run: () => zoomBy(-1) },
     { label: 'An Breite anpassen', icon: 'fitWidth', disabled: zoom === 'fit', run: () => setZoom('fit') },
+    'separator',
+    { label: 'Drucken …', icon: 'print', run: print },
+    { label: 'Dokument schließen', icon: 'closeDocument', run: closeDocument },
     'separator',
     { label: 'Über und Datenschutz', icon: 'info', run: () => setAbout(true) },
   ]
@@ -863,10 +878,13 @@ export default function App() {
                 {empty ? null : searchField}
               </>
             )}
-            <button className="button is-primary export-button" disabled={empty} onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect()
-              setMenu({ x: r.right - 250, y: r.bottom + 6, kind: 'document' })
-            }} aria-haspopup="menu">
+            {compact ? null : (
+              <>
+                <ToolButton icon="print" label={`Drucken (${MOD}P)`} disabled={empty} onClick={print} />
+                <ToolButton icon="more" label="Mehr" onClick={(e) => openMenuBelow(e, 'document')} />
+              </>
+            )}
+            <button className="button is-primary export-button" disabled={empty} onClick={(e) => openMenuBelow(e, 'save')} aria-haspopup="menu">
               <Icon name="save" />
               Sichern
               {compact ? null : <Icon name="chevron" width={14} />}
@@ -1031,7 +1049,7 @@ export default function App() {
         />
       ) : null}
 
-      {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : menu.kind === 'more' ? moreMenu() : menu.kind === 'gap' ? gapMenu(menu.at) : documentMenu()}
+      {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : menu.kind === 'more' ? moreMenu() : menu.kind === 'gap' ? gapMenu(menu.at) : menu.kind === 'save' ? saveMenu() : documentMenu()}
           above={menu.kind === 'more'} onClose={() => setMenu(null)} /> : null}
 
       <div className="toasts" aria-live="polite">
@@ -1059,7 +1077,7 @@ export default function App() {
   )
 }
 
-function ToolButton({ icon, label, pressed, disabled, onClick }: { icon: IconName; label: string; pressed?: boolean; disabled?: boolean; onClick: () => void }) {
+function ToolButton({ icon, label, pressed, disabled, onClick }: { icon: IconName; label: string; pressed?: boolean; disabled?: boolean; onClick: (e: MouseEvent<HTMLButtonElement>) => void }) {
   return (
     <button className="tool" title={label} aria-label={label} aria-pressed={pressed} disabled={disabled} onClick={onClick}>
       <Icon name={icon} />
