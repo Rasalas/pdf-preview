@@ -280,6 +280,8 @@ async function shot(page, name) {
   if (page.viewportSize().width > 820) await page.mouse.move(640, 26)
   // Notes such as the hint that the photo page has no text would cover the shot.
   for (const close of await page.locator('.toast button[aria-label="Schließen"]').all()) await close.click()
+  // Text recognition starts by itself on larger screens; its status would show in every shot.
+  await page.waitForFunction(() => !document.querySelector('.task'), null, { timeout: 120_000 })
   await page.screenshot({ path: join(out, `${name}.png`) })
   console.log(`docs/media/${name}.png`)
 }
