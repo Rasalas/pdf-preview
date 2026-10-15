@@ -1,10 +1,10 @@
-import { useCallback, useRef, type Dispatch } from 'react'
+import { useCallback, useRef, useState, type Dispatch } from 'react'
 import type { OcrResults } from '../model/ocr'
 import type { Page, Sources } from '../model/types'
 import type { Action } from '../state'
 import { planRecognition } from './scans'
 
-interface Task {
+export interface Task {
   label: string
   progress: number | null
   cancel?: () => void
@@ -14,39 +14,52 @@ interface Deps {
   sources: Sources
   ocr: OcrResults
   dispatch: Dispatch<Action>
-  setTask: (task: Task | null) => void
   toast: (text: string, note?: boolean) => void
 }
 
 const pagesWord = (n: number) => (n === 1 ? 'Seite' : 'Seiten')
 
-/** Returns a function that reads the text of the given pages, with progress in the task bar. */
-export function useRecognition({ sources, ocr, dispatch, setTask, toast }: Deps) {
+/**
+ * Reads the text of pages, one run at a time, with its own status beside the app's task so that
+ * saving or printing can go on meanwhile. Automatic runs stay quiet unless something fails.
+ */
+export function useRecognition({ sources, ocr, dispatch, toast }: Deps) {
   const running = useRef(false)
+  const [status, setStatus] = useState<Task | null>(null)
+  // Also covers checking the pages first, before any status shows.
+  const [busy, setBusy] = useState(false)
 
-  return useCallback(
-    async (pages: Page[]) => {
+  const recognise = useCallback(
+    async (pages: Page[], auto = false) => {
       if (running.current) return
       running.current = true
-      // Checking a long document for text takes a moment; the bar only shows if it does.
-      const checking = setTimeout(() => setTask({ label: 'Seiten werden geprüft', progress: null }), 250)
+      setBusy(true)
+      // Checking a long document for text takes a moment; the status only shows if it does.
+      const checking = auto ? undefined : setTimeout(() => setStatus({ label: 'Seiten werden geprüft', progress: null }), 250)
       try {
         const jobs = await planRecognition(pages, sources, ocr).finally(() => clearTimeout(checking))
         if (jobs.length === 0) {
-          toast(pages.length === 1 ? 'Diese Seite hat schon Text oder ist leer.' : 'Die Seiten haben schon Text oder sind leer.', true)
+          if (!auto) toast(pages.length === 1 ? 'Diese Seite hat schon Text oder ist leer.' : 'Die Seiten haben schon Text oder sind leer.', true)
           return
         }
-        await run(jobs, { dispatch, setTask, toast })
+        await run(jobs, auto, { dispatch, setStatus, toast })
       } finally {
         running.current = false
-        setTask(null)
+        setBusy(false)
+        setStatus(null)
       }
     },
-    [sources, ocr, dispatch, setTask, toast],
+    [sources, ocr, dispatch, toast],
   )
+
+  return { recognise, status, running: busy }
 }
 
-async function run(jobs: Awaited<ReturnType<typeof planRecognition>>, { dispatch, setTask, toast }: Omit<Deps, 'sources' | 'ocr'>) {
+interface RunDeps extends Pick<Deps, 'dispatch' | 'toast'> {
+  setStatus: (status: Task | null) => void
+}
+
+async function run(jobs: Awaited<ReturnType<typeof planRecognition>>, auto: boolean, { dispatch, setStatus, toast }: RunDeps) {
   const { recognizePages } = await import('./recognize')
   let cancelled = false
   let withText = 0
@@ -59,13 +72,13 @@ async function run(jobs: Awaited<ReturnType<typeof planRecognition>>, { dispatch
     if (fraction > 0 && fraction < 1 && now - last < 120) return
     last = now
     const label = jobs.length === 1 ? 'Text wird erkannt' : `Text wird erkannt – Seite ${finished + 1} von ${jobs.length}`
-    setTask({ label, progress: (finished + fraction) / jobs.length, cancel: cancel })
+    setStatus({ label, progress: (finished + fraction) / jobs.length, cancel: cancel })
   }
   const cancel = () => {
     cancelled = true
-    setTask({ label: 'Wird nach dieser Seite beendet', progress: null })
+    setStatus({ label: 'Wird nach dieser Seite beendet', progress: null })
   }
-  setTask({ label: 'Texterkennung wird vorbereitet', progress: null, cancel })
+  setStatus({ label: 'Texterkennung wird vorbereitet', progress: null, cancel })
   try {
     const outcome = await recognizePages(jobs, {
       cancelled: () => cancelled,
@@ -83,6 +96,8 @@ async function run(jobs: Awaited<ReturnType<typeof planRecognition>>, { dispatch
     if (outcome.failed.length) {
       toast(outcome.failed.length === 1 ? 'Auf einer Seite ist die Texterkennung fehlgeschlagen.' : `Auf ${outcome.failed.length} Seiten ist die Texterkennung fehlgeschlagen.`)
     }
+    // Nobody asked for an automatic run, so only failures are worth a word.
+    if (auto) return
     if (outcome.cancelled) {
       toast(withText ? `Abgebrochen. Text auf ${withText} von ${jobs.length} ${pagesWord(jobs.length)} erkannt.` : 'Abgebrochen.', true)
     } else if (withText) {
@@ -93,6 +108,6 @@ async function run(jobs: Awaited<ReturnType<typeof planRecognition>>, { dispatch
     }
   } catch (e) {
     console.error('Texterkennung konnte nicht starten', e)
-    toast('Die Texterkennung konnte nicht gestartet werden.')
+    if (!auto) toast('Die Texterkennung konnte nicht gestartet werden.')
   }
 }

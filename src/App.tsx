@@ -14,7 +14,7 @@ import { Viewer, type ActiveHit, type CropRequest, type Markup, type Zoom } from
 import { displayedSize } from './model/crop'
 import type { Page, Rect } from './model/types'
 import { isScan } from './ocr/scans'
-import { useRecognition } from './ocr/useRecognition'
+import { useRecognition, type Task } from './ocr/useRecognition'
 import type { CompressStats } from './pdf/compress'
 import { A4, ACCEPT, ImportError, blankSource, importFile } from './pdf/import'
 import { countMatches, normalizeQuery, pageStrings } from './pdf/text'
@@ -29,11 +29,6 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
 const isSafari = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent)
 const MOD = isMac ? '⌘' : 'Strg+'
 
-interface Task {
-  label: string
-  progress: number | null
-  cancel?: () => void
-}
 
 interface Toast {
   id: number
@@ -114,14 +109,30 @@ export default function App() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 7000)
   }, [])
 
+  const { recognise, status: readStatus, running: reading } = useRecognition({ sources: state.sources, ocr: state.ocr, dispatch, toast })
+
   // An offer to start something has served its purpose once something runs.
   useEffect(() => {
-    if (task) setToasts((all) => all.filter((t) => !t.action))
-  }, [task])
-
-  const recognise = useRecognition({ sources: state.sources, ocr: state.ocr, dispatch, setTask, toast })
+    if (task || reading) setToasts((all) => all.filter((t) => !t.action))
+  }, [task, reading])
   const recogniseRef = useRef(recognise)
   recogniseRef.current = recognise
+
+  // Scans get their text as soon as they are open; on phones only when asked, for data and battery.
+  // Each page and turn is tried once, so a cancelled run does not start again by itself.
+  const tried = useRef(new Set<string>())
+  useEffect(() => {
+    if (compact || reading) return
+    const key = (p: Page) => `${p.sourceId}:${p.index}:${p.rotation}`
+    const fresh = pages.filter((p) => !tried.current.has(key(p)))
+    if (fresh.length === 0) return
+    // After the pages have had a moment to render.
+    const t = setTimeout(() => {
+      for (const p of fresh) tried.current.add(key(p))
+      recognise(fresh, true)
+    }, 1000)
+    return () => clearTimeout(t)
+  }, [compact, reading, pages, recognise])
 
   useEffect(() => {
     loadSession().then((s) => {
@@ -183,7 +194,7 @@ export default function App() {
   const scansNoted = useRef(false)
   useEffect(() => {
     if (!q) scansNoted.current = false
-    if (!hits.done || hits.query !== q || hits.scans.length === 0 || scansNoted.current) return
+    if (!hits.done || hits.query !== q || hits.scans.length === 0 || scansNoted.current || reading) return
     scansNoted.current = true
     const n = hits.scans.length
     const scanPages = pagesRef.current.filter((p) => hits.scans.includes(p.id))
@@ -193,7 +204,7 @@ export default function App() {
       { label: 'Text erkennen', run: () => recogniseRef.current(scanPages) },
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hits, q])
+  }, [hits, q, reading])
 
   const hitOrder = useMemo(
     () => pages.flatMap((p) => Array.from({ length: hits.pages.get(p.id) ?? 0 }, (_, n) => ({ pageId: p.id, n }))),
@@ -309,6 +320,7 @@ export default function App() {
       )
       await download(bytes, `${title}${suffix}.pdf`)
       if (stats) toast(savingsMessage(bytes.length, stats), true)
+      if (reading) toast('Die Texterkennung läuft noch. Seiten, die sie noch nicht gelesen hat, sind im gesicherten PDF nicht durchsuchbar.', true)
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {
         console.error(e)
@@ -484,7 +496,7 @@ export default function App() {
     { label: 'Nach links drehen', icon: 'rotateLeft', shortcut: `${MOD}L`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: -90 }) },
     { label: 'Nach rechts drehen', icon: 'rotateRight', shortcut: `${MOD}R`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: 90 }) },
     { label: 'Duplizieren', icon: 'duplicate', shortcut: `${MOD}D`, disabled: !has, run: () => dispatch({ type: 'duplicate' }) },
-    { label: 'Text erkennen …', icon: 'scanText', disabled: !has || !!task, run: () => recognise(selectedPages) },
+    { label: 'Text erkennen …', icon: 'scanText', disabled: !has || reading, run: () => recognise(selectedPages) },
     { label: 'Beschneiden …', icon: 'crop', shortcut: `${MOD}K`, disabled: !has, run: () => startCrop(menu?.kind === 'page' ? (menu.from ?? menu.on) : undefined) },
     'separator',
     { label: 'Dateien danach einfügen …', icon: 'file', run: () => openFiles() },
@@ -550,7 +562,7 @@ export default function App() {
     { label: 'Dateien einfügen …', icon: 'file', shortcut: `${MOD}O`, run: () => openFiles() },
     { label: 'Leere Seite einfügen', icon: 'blank', run: () => insertBlank() },
     'separator',
-    { label: 'Text erkennen …', icon: 'scanText', disabled: !pages.length || !!task, run: () => recognise(pages) },
+    { label: 'Text erkennen …', icon: 'scanText', disabled: !pages.length || reading, run: () => recognise(pages) },
     'separator',
     { label: 'Dokument schließen', icon: 'closeDocument', disabled: !pages.length, run: closeDocument },
     'separator',
@@ -572,7 +584,7 @@ export default function App() {
     { label: 'Wiederholen', icon: 'redo', disabled: !canRedo, run: () => dispatch({ type: 'redo' }) },
     { label: 'Nach links drehen', icon: 'rotateLeft', disabled: !state.current, run: () => onVisiblePage({ type: 'rotate', delta: -90 }) },
     { label: 'Duplizieren', icon: 'duplicate', disabled: !state.current, run: () => onVisiblePage({ type: 'duplicate' }) },
-    { label: 'Text erkennen …', icon: 'scanText', disabled: !state.current || !!task, run: () => recognise(pages.filter((p) => p.id === state.current)) },
+    { label: 'Text erkennen …', icon: 'scanText', disabled: !state.current || reading, run: () => recognise(pages.filter((p) => p.id === state.current)) },
     { label: 'Beschneiden …', icon: 'crop', disabled: !state.current, run: () => state.current && beginCrop(state.current, [state.current]) },
     { label: 'Leere Seite danach einfügen', icon: 'blank', run: () => insertBlank(currentIndex + 1) },
     'separator',
@@ -759,7 +771,7 @@ export default function App() {
             : `${activeIndex + 1 || '–'} / ${hitOrder.length}${hits.done ? '' : '+'}`}
         </span>
       ) : null}
-      {q && hits.done && hits.query === q && hits.scans.length && !task ? (
+      {q && hits.done && hits.query === q && hits.scans.length && !reading ? (
         <button
           className="search-scan"
           title={`${hits.scans.length === 1 ? 'Eine Seite ist ein Scan' : `${hits.scans.length} Seiten sind Scans`} ohne Text – Text erkennen …`}
@@ -772,15 +784,21 @@ export default function App() {
     </div>
   )
 
-  const taskStatus = task ? (
+  const statusOf = (t: Task) => (
     <div className="task" role="status">
-      <span className="task-label">{task.label}</span>
+      <span className="task-label">{t.label}</span>
       <span className="task-bar">
-        <span style={task.progress === null ? undefined : { width: `${task.progress * 100}%` }} className={task.progress === null ? 'is-indeterminate' : ''} />
+        <span style={t.progress === null ? undefined : { width: `${t.progress * 100}%` }} className={t.progress === null ? 'is-indeterminate' : ''} />
       </span>
-      {task.cancel ? <button className="task-cancel" onClick={task.cancel}>Abbrechen</button> : null}
+      {t.cancel ? <button className="task-cancel" onClick={t.cancel}>Abbrechen</button> : null}
     </div>
-  ) : null
+  )
+  const taskStatus = (
+    <>
+      {task ? statusOf(task) : null}
+      {readStatus ? statusOf(readStatus) : null}
+    </>
+  )
 
   const markupBar = (
     <MarkupBar
@@ -853,7 +871,7 @@ export default function App() {
                 </>
               )}
             </div>
-            {!compact && task ? taskStatus : null}
+            {compact ? null : taskStatus}
             {compact ? null : (
               <>
                 <div className="toolbar-group">
@@ -892,7 +910,7 @@ export default function App() {
           </>
         )}
       </header>
-      {compact && task ? taskStatus : null}
+      {compact ? taskStatus : null}
       {markupOpen && !empty && !compact ? markupBar : null}
       </div>
 
