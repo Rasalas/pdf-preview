@@ -4,6 +4,7 @@ import { AboutDialog } from './components/AboutDialog'
 import { BottomBar } from './components/BottomBar'
 import { EmptyState } from './components/EmptyState'
 import { MarkupBar } from './components/MarkupBar'
+import { Jbig2Dialog } from './components/Jbig2Dialog'
 import { PasswordDialog } from './components/PasswordDialog'
 import { SignatureDialog } from './components/SignatureDialog'
 import { Icon, type IconName } from './components/icons'
@@ -95,6 +96,7 @@ export default function App() {
   const [signature, setSignature] = useState<Signature | null>(null)
   const [signatureDialog, setSignatureDialog] = useState(false)
   const [about, setAbout] = useState(false)
+  const [jbig2Warning, setJbig2Warning] = useState(false)
   useEffect(() => localStorage.setItem('signatures', JSON.stringify(signatures)), [signatures])
 
   const [query, setQuery] = useState('')
@@ -300,12 +302,13 @@ export default function App() {
     dispatch({ type: 'import', sources: [blankSource(ref ? displayedSize(size, ref) : A4)], before: pages[at]?.id ?? null })
   }
 
-  const exportPdf = async (list: Page[], suffix = '', compress = false) => {
+  const exportPdf = async (list: Page[], suffix = '', { compress = false, withoutJbig2 = false } = {}) => {
     if (list.length === 0) return
     const title = state.title.trim() || 'Unbenannt'
     let cancelled = false
     let stats: CompressStats | undefined
-    setTask({ label: compress ? 'Kleineres PDF wird erstellt' : 'PDF wird erstellt', progress: 0, cancel: () => (cancelled = true) })
+    const label = compress ? 'Kleineres PDF wird erstellt' : withoutJbig2 ? 'PDF ohne JBIG2 wird erstellt' : 'PDF wird erstellt'
+    setTask({ label, progress: 0, cancel: () => (cancelled = true) })
     try {
       const { buildPdf, savingsMessage } = await import('./pdf/export')
       const bytes = await buildPdf(
@@ -316,7 +319,7 @@ export default function App() {
           if (cancelled) throw new DOMException('Abgebrochen', 'AbortError')
           setTask((t) => t && { ...t, progress: done / total })
         },
-        { fields: state.fields, ocr: state.ocr, compress, onCompressed: (s) => (stats = s) },
+        { fields: state.fields, ocr: state.ocr, compress, withoutJbig2, onCompressed: (s) => (stats = s) },
       )
       await download(bytes, `${title}${suffix}.pdf`)
       if (stats) toast(savingsMessage(bytes.length, stats), true)
@@ -324,7 +327,7 @@ export default function App() {
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {
         console.error(e)
-        toast('Das PDF konnte nicht erstellt werden.')
+        toast(e instanceof Error && e.name === 'Jbig2Error' ? 'Ein JBIG2-Bild ließ sich nicht umwandeln, das PDF wurde nicht gesichert.' : 'Das PDF konnte nicht erstellt werden.')
       }
     } finally {
       setTask(null)
@@ -551,11 +554,17 @@ export default function App() {
     dispatch({ type: 'remove' })
   }
 
+  // Only offered when the pages hold JBIG2 scans; `symbols` asks first (see Jbig2Dialog).
+  const jbig2Kinds = new Set(pages.map((p) => state.sources[p.sourceId].jbig2))
+  const jbig2 = jbig2Kinds.has('symbols') ? 'symbols' : jbig2Kinds.has('lossless') ? 'lossless' : null
+  const saveWithoutJbig2 = () => exportPdf(pages, ' – ohne JBIG2', { withoutJbig2: true })
+
   const saveMenu = (): MenuItem[] => [
     { label: 'Als PDF sichern …', icon: 'save', shortcut: `${MOD}S`, disabled: !pages.length, run: () => exportPdf(pages) },
     { label: `Auswahl sichern (${count}) …`, icon: 'export', disabled: !has || count === pages.length, run: () => exportPdf(selectedPages, ' – Auswahl') },
     'separator',
-    { label: 'Kleiner sichern …', icon: 'shrink', disabled: !pages.length, run: () => exportPdf(pages, ' – klein', true) },
+    { label: 'Kleiner sichern …', icon: 'shrink', disabled: !pages.length, run: () => exportPdf(pages, ' – klein', { compress: true }) },
+    ...(jbig2 ? [{ label: 'Ohne JBIG2 sichern …', icon: 'withoutJbig2' as const, run: () => (jbig2 === 'symbols' ? setJbig2Warning(true) : saveWithoutJbig2()) }] : []),
   ]
 
   const documentMenu = (): MenuItem[] => [
@@ -1050,6 +1059,14 @@ export default function App() {
       />
 
       {about ? <AboutDialog onClose={() => setAbout(false)} /> : null}
+      {jbig2Warning ? (
+        <Jbig2Dialog
+          onAnswer={(save) => {
+            setJbig2Warning(false)
+            if (save) saveWithoutJbig2()
+          }}
+        />
+      ) : null}
 
       {passwordRequest ? (
         <PasswordDialog key={passwordRequest.id} name={passwordRequest.name} wrong={passwordRequest.wrong} onAnswer={passwordRequest.answer} />
