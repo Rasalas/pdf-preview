@@ -27,6 +27,9 @@ interface Props {
   suspended: boolean
 }
 
+/** Space beside a thumbnail on either side, wide enough for the page actions. */
+export const MARGIN = 34
+
 /** How long the pointer rests in a gap before its "+" shows, so passing by does not flicker. */
 const REST = 150
 
@@ -127,8 +130,8 @@ export function PageHover({ root, pages, actions, suspended }: Props) {
     <div key={id} className="hover-ui thumb-actions" role="group" aria-label="Seitenaktionen" style={{ left: at.x, top: at.y }} onMouseDown={keepFocus}>
       <ActionButton icon="rotateLeft" label={`Nach links drehen (${actions.mod}L)`} onClick={() => actions.onRotate(id, -90)} />
       <ActionButton icon="rotateRight" label={`Nach rechts drehen (${actions.mod}R)`} onClick={() => actions.onRotate(id, 90)} />
-      <ActionButton icon="trash" danger label="Seite löschen (⌫)" onClick={() => actions.onRemove(id)} />
       <ActionButton icon="more" label="Mehr" menu onClick={(e) => actions.onMore(id, e.currentTarget.getBoundingClientRect())} />
+      <ActionButton icon="trash" danger label="Seite löschen (⌫)" onClick={() => actions.onRemove(id)} />
     </div>
   )
 }
@@ -152,7 +155,7 @@ function ActionButton({ icon, label, danger, menu, onClick }: ActionButtonProps)
 const same = (a: Spot | null, b: Spot | null) =>
   a === b || (!!a && !!b && ('page' in a ? 'page' in b && a.page === b.page : 'gap' in b && a.gap === b.gap))
 
-/** The page or gap under the pointer, or null when it is beside a page or on something else. */
+/** The page or gap under the pointer, or null when it is on something else. */
 function spotAt(root: HTMLElement, pages: Page[], target: HTMLElement, y: number): Spot | null {
   if (target.closest('.add-tile')) return null
   const thumb = target.closest<HTMLElement>('.thumb')
@@ -162,10 +165,10 @@ function spotAt(root: HTMLElement, pages: Page[], target: HTMLElement, y: number
     return first && y < first.getBoundingClientRect().top ? { gap: 0 } : null
   }
   const id = thumb.dataset.id!
-  if (target.closest('.thumb-frame')) return { page: id }
   const frame = thumb.querySelector('.thumb-frame')!.getBoundingClientRect()
+  // Level with the frame counts as the page, so the pointer can cross the margin to the actions.
   const gap = gapNear(pages.findIndex((p) => p.id === id), frame, y)
-  return gap === null ? null : { gap }
+  return gap === null ? { page: id } : { gap }
 }
 
 /** Where an overlay for the spot sits, in the coordinates of the scrolled list. */
@@ -174,8 +177,10 @@ function anchorOf(root: HTMLElement, spot: Spot): { x: number; y: number } | nul
   const place = (x: number, y: number) => ({ x: Math.round(x - box.left + root.scrollLeft), y: Math.round(y - box.top + root.scrollTop) })
   if ('page' in spot) {
     const frame = root.querySelector(`[data-id="${spot.page}"] .thumb-frame`)?.getBoundingClientRect()
-    // The top edge stays put when a rotation changes the frame's height, so repeated clicks hit.
-    return frame ? place(frame.left + frame.width / 2, frame.top) : null
+    const list = root.querySelector('.page-list')?.getBoundingClientRect()
+    // In the right margin, off the page, so clicking a page never hits an action.
+    // Top edge and margin stay put when a rotation reshapes the frame, so repeated clicks hit.
+    return frame && list ? place(list.right - 2, frame.top) : null
   }
   const thumbs = root.querySelectorAll('.thumb')
   const list = root.querySelector('.page-list')?.getBoundingClientRect()

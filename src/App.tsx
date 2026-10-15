@@ -481,18 +481,18 @@ export default function App() {
   const pageWord = count === 1 ? 'Seite' : `${count} Seiten`
 
   const pageMenu = (): MenuItem[] => [
-    { label: 'Nach links drehen', shortcut: `${MOD}L`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: -90 }) },
-    { label: 'Nach rechts drehen', shortcut: `${MOD}R`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: 90 }) },
-    { label: 'Duplizieren', shortcut: `${MOD}D`, disabled: !has, run: () => dispatch({ type: 'duplicate' }) },
-    { label: 'Text erkennen …', disabled: !has || !!task, run: () => recognise(selectedPages) },
-    { label: 'Beschneiden …', shortcut: `${MOD}K`, disabled: !has, run: () => startCrop(menu?.kind === 'page' ? (menu.from ?? menu.on) : undefined) },
+    { label: 'Nach links drehen', icon: 'rotateLeft', shortcut: `${MOD}L`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: -90 }) },
+    { label: 'Nach rechts drehen', icon: 'rotateRight', shortcut: `${MOD}R`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: 90 }) },
+    { label: 'Duplizieren', icon: 'duplicate', shortcut: `${MOD}D`, disabled: !has, run: () => dispatch({ type: 'duplicate' }) },
+    { label: 'Text erkennen …', icon: 'scanText', disabled: !has || !!task, run: () => recognise(selectedPages) },
+    { label: 'Beschneiden …', icon: 'crop', shortcut: `${MOD}K`, disabled: !has, run: () => startCrop(menu?.kind === 'page' ? (menu.from ?? menu.on) : undefined) },
     'separator',
-    { label: 'Dateien danach einfügen …', run: () => openFiles() },
-    { label: 'Leere Seite danach einfügen', run: () => insertBlank() },
+    { label: 'Dateien danach einfügen …', icon: 'file', run: () => openFiles() },
+    { label: 'Leere Seite danach einfügen', icon: 'blank', run: () => insertBlank() },
     'separator',
-    { label: `${pageWord} als PDF sichern …`, disabled: !has, run: () => exportPdf(selectedPages, count === 1 ? ` – Seite ${pages.indexOf(selectedPages[0]) + 1}` : ' – Auswahl') },
+    { label: `${pageWord} als PDF sichern …`, icon: 'export', disabled: !has, run: () => exportPdf(selectedPages, count === 1 ? ` – Seite ${pages.indexOf(selectedPages[0]) + 1}` : ' – Auswahl') },
     'separator',
-    { label: `${pageWord} löschen`, shortcut: '⌫', disabled: !has, danger: true, run: () => dispatch({ type: 'remove' }) },
+    { label: `${pageWord} löschen`, icon: 'trash', shortcut: '⌫', disabled: !has, danger: true, run: () => dispatch({ type: 'remove' }) },
   ]
 
   const onThumbContextMenu = (e: MouseEvent, id: string) => {
@@ -502,8 +502,8 @@ export default function App() {
   }
 
   const gapMenu = (at: number): MenuItem[] => [
-    { label: 'Dateien hier einfügen …', run: () => openFiles(at) },
-    { label: 'Leere Seite hier einfügen', run: () => insertBlank(at) },
+    { label: 'Dateien hier einfügen …', icon: 'file', run: () => openFiles(at) },
+    { label: 'Leere Seite hier einfügen', icon: 'blank', run: () => insertBlank(at) },
   ]
 
   // Buttons on a page act on that page alone: after an import every new page is selected,
@@ -522,26 +522,27 @@ export default function App() {
     onRemove: (id) => onHoveredPage(id, { type: 'remove' }),
     onMore: (id, anchor) => {
       if (!selection.has(id)) dispatch({ type: 'select', id, mode: 'single' })
-      setMenu({ ...below(anchor), kind: 'page', from: id })
+      // Beside the button, so the menu does not cover the actions below it.
+      setMenu({ x: anchor.right + 6, y: anchor.top, kind: 'page', from: id })
     },
     onGap: (at, anchor) => setMenu({ ...below(anchor), kind: 'gap', at }),
     onAdd: () => openFiles(pages.length),
   }
 
   const documentMenu = (): MenuItem[] => [
-    { label: 'Als PDF sichern …', shortcut: `${MOD}S`, disabled: !pages.length, run: () => exportPdf(pages) },
-    { label: 'Kleiner sichern …', disabled: !pages.length, run: () => exportPdf(pages, ' – klein', true) },
-    { label: `Auswahl sichern (${count}) …`, disabled: !has || count === pages.length, run: () => exportPdf(selectedPages, ' – Auswahl') },
-    { label: 'Drucken …', shortcut: `${MOD}P`, disabled: !pages.length, run: print },
+    { label: 'Als PDF sichern …', icon: 'save', shortcut: `${MOD}S`, disabled: !pages.length, run: () => exportPdf(pages) },
+    { label: 'Kleiner sichern …', icon: 'shrink', disabled: !pages.length, run: () => exportPdf(pages, ' – klein', true) },
+    { label: `Auswahl sichern (${count}) …`, icon: 'export', disabled: !has || count === pages.length, run: () => exportPdf(selectedPages, ' – Auswahl') },
+    { label: 'Drucken …', icon: 'print', shortcut: `${MOD}P`, disabled: !pages.length, run: print },
     'separator',
-    { label: 'Text erkennen …', disabled: !pages.length || !!task, run: () => recognise(pages) },
+    { label: 'Text erkennen …', icon: 'scanText', disabled: !pages.length || !!task, run: () => recognise(pages) },
     'separator',
-    { label: 'Dateien einfügen …', shortcut: `${MOD}O`, run: () => openFiles() },
-    { label: 'Leere Seite einfügen', run: () => insertBlank() },
+    { label: 'Dateien einfügen …', icon: 'file', shortcut: `${MOD}O`, run: () => openFiles() },
+    { label: 'Leere Seite einfügen', icon: 'blank', run: () => insertBlank() },
     'separator',
-    { label: 'Dokument schließen', disabled: !pages.length, run: () => { dispatch({ type: 'selectAll' }); dispatch({ type: 'remove' }) } },
+    { label: 'Dokument schließen', icon: 'closeDocument', disabled: !pages.length, run: () => { dispatch({ type: 'selectAll' }); dispatch({ type: 'remove' }) } },
     'separator',
-    { label: 'Über Vorschau und Datenschutz …', run: () => setAbout(true) },
+    { label: 'Über Vorschau und Datenschutz …', icon: 'info', run: () => setAbout(true) },
   ]
 
   /**
@@ -556,18 +557,18 @@ export default function App() {
 
   /** Less frequent actions behind "Mehr" in the touch layout. */
   const moreMenu = (): MenuItem[] => [
-    { label: 'Wiederholen', disabled: !canRedo, run: () => dispatch({ type: 'redo' }) },
-    { label: 'Nach links drehen', disabled: !state.current, run: () => onVisiblePage({ type: 'rotate', delta: -90 }) },
-    { label: 'Duplizieren', disabled: !state.current, run: () => onVisiblePage({ type: 'duplicate' }) },
-    { label: 'Text erkennen …', disabled: !state.current || !!task, run: () => recognise(pages.filter((p) => p.id === state.current)) },
-    { label: 'Beschneiden …', disabled: !state.current, run: () => state.current && beginCrop(state.current, [state.current]) },
-    { label: 'Leere Seite danach einfügen', run: () => insertBlank(currentIndex + 1) },
+    { label: 'Wiederholen', icon: 'redo', disabled: !canRedo, run: () => dispatch({ type: 'redo' }) },
+    { label: 'Nach links drehen', icon: 'rotateLeft', disabled: !state.current, run: () => onVisiblePage({ type: 'rotate', delta: -90 }) },
+    { label: 'Duplizieren', icon: 'duplicate', disabled: !state.current, run: () => onVisiblePage({ type: 'duplicate' }) },
+    { label: 'Text erkennen …', icon: 'scanText', disabled: !state.current || !!task, run: () => recognise(pages.filter((p) => p.id === state.current)) },
+    { label: 'Beschneiden …', icon: 'crop', disabled: !state.current, run: () => state.current && beginCrop(state.current, [state.current]) },
+    { label: 'Leere Seite danach einfügen', icon: 'blank', run: () => insertBlank(currentIndex + 1) },
     'separator',
-    { label: 'Vergrößern', run: () => zoomBy(1) },
-    { label: 'Verkleinern', run: () => zoomBy(-1) },
-    { label: 'An Breite anpassen', disabled: zoom === 'fit', run: () => setZoom('fit') },
+    { label: 'Vergrößern', icon: 'zoomIn', run: () => zoomBy(1) },
+    { label: 'Verkleinern', icon: 'zoomOut', run: () => zoomBy(-1) },
+    { label: 'An Breite anpassen', icon: 'fitWidth', disabled: zoom === 'fit', run: () => setZoom('fit') },
     'separator',
-    { label: 'Über und Datenschutz', run: () => setAbout(true) },
+    { label: 'Über und Datenschutz', icon: 'info', run: () => setAbout(true) },
   ]
 
   // Global shortcuts. Re-bound every render so handlers see current state.
@@ -804,6 +805,7 @@ export default function App() {
             <ToolButton icon="up" label="Vorheriger Treffer" disabled={!hitOrder.length} onClick={() => jump(-1)} />
             <ToolButton icon="down" label="Nächster Treffer" disabled={!hitOrder.length} onClick={() => jump(1)} />
             <button className="button is-quiet search-cancel" onClick={() => { setQuery(''); setSearchOpen(false) }}>
+              <Icon name="check" width={15} />
               Fertig
             </button>
           </>

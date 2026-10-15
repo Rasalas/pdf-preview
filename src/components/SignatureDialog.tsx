@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { newId } from '../model/ids'
 import type { Point } from '../model/types'
 import { inkPath, type Signature } from './AnnotationLayer'
+import { Icon } from './icons'
 
 interface Props {
   onSave: (s: Signature) => void
@@ -61,13 +62,16 @@ export function SignatureDialog({ onSave, onClose }: Props) {
       </svg>
       <div className="dialog-actions">
         <button className="button is-quiet" onClick={() => setPaths([])} disabled={!paths.length}>
+          <Icon name="erase" width={15} />
           Löschen
         </button>
         <span />
         <button className="button" onClick={() => dialog.current!.close()}>
+          <Icon name="close" width={15} />
           Abbrechen
         </button>
         <button className="button is-primary" disabled={!paths.length} onClick={save}>
+          <Icon name="check" width={15} />
           Sichern
         </button>
       </div>

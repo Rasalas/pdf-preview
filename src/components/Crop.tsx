@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, ty
 import { dragCrop, sourceRect, viewRect, type CropHandle } from '../model/crop'
 import { rotatedSize } from '../model/pages'
 import type { PageSize, Rect, Rotation } from '../model/types'
+import { Icon } from './icons'
 
 type Edge = Exclude<CropHandle, 'move'>
 
@@ -138,13 +139,16 @@ export function CropBar({ count, hasCrop, onApply, onReset, onCancel }: BarProps
       <div className="crop-actions">
         {hasCrop ? (
           <button className="button is-quiet" onClick={() => onReset(everyone)}>
+            <Icon name="undo" width={15} />
             Zurücksetzen
           </button>
         ) : null}
         <button className="button" onClick={onCancel}>
+          <Icon name="close" width={15} />
           Abbrechen
         </button>
         <button className="button is-primary" onClick={() => onApply(everyone)}>
+          <Icon name="crop" width={15} />
           Beschneiden
         </button>
       </div>

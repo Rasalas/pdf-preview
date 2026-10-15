@@ -12,7 +12,7 @@ Eine Web-App nach dem Vorbild der macOS-App Vorschau. Dateien werden ausschließ
 
 ## Was die App kann
 
-- **Zusammenstellen:** PDFs und Bilder (JPEG, PNG, TIFF, HEIC, WebP, GIF, BMP, AVIF, SVG) hineinziehen, gezielt zwischen zwei Seiten einfügen, Seiten per Drag & Drop umsortieren, drehen, duplizieren, löschen und leere Seiten einfügen. Über einer Miniatur erscheinen Drehen, Löschen und „Mehr“, zwischen zwei Miniaturen ein „+“ zum Einfügen, am Ende der Liste die Kachel „Dateien hinzufügen“.
+- **Zusammenstellen:** PDFs und Bilder (JPEG, PNG, TIFF, HEIC, WebP, GIF, BMP, AVIF, SVG) hineinziehen, gezielt zwischen zwei Seiten einfügen, Seiten per Drag & Drop umsortieren, drehen, duplizieren, löschen und leere Seiten einfügen. Neben einer Miniatur erscheinen Drehen, „Mehr“ und Löschen, zwischen zwei Miniaturen ein „+“ zum Einfügen, am Ende der Liste die Kachel „Dateien hinzufügen“.
 - **Beschneiden:** Seiten auf einen Ausschnitt zuschneiden, etwa den Tisch um ein fotografiertes Dokument oder breite Scanränder. „Beschneiden …“ im Seitenmenü oder ⌘K, Rahmen ziehen, mit ↩ übernehmen. Mit mehreren ausgewählten Seiten gilt derselbe Ausschnitt für alle; Widerrufen und Zurücksetzen gehen jederzeit.
 - **Bilder:** Mehrseitige TIFF-Scans (Fax- und Scanner-Kompression) werden zu einer Seite je Blatt, die Auflösung bestimmt die Seitengröße, ein 300-dpi-Scan wird also A4. iPhone-Fotos (HEIC) öffnen auch in Chrome und Firefox. Die Drehung aus den Fotodaten (EXIF) gilt in der Vorschau und im gesicherten PDF gleich, JPEGs bleiben dabei unverändert.
 - **Markieren:** Text hervorheben, frei zeichnen, Rechtecke, Ovale, Linien, Pfeile, Textfelder und die eigene Unterschrift. Alles lässt sich verschieben, skalieren und umfärben.

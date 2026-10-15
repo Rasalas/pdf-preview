@@ -9,7 +9,7 @@ import { FINE, useMedia } from '../useMedia'
 import { useSettled } from '../useSettled'
 import { AnnotationLayer } from './AnnotationLayer'
 import { Icon } from './icons'
-import { PageHover, type PageActions } from './PageHover'
+import { MARGIN, PageHover, type PageActions } from './PageHover'
 
 export const PAGES_MIME = 'application/x-vorschau-pages'
 /** Widest thumbnail render in CSS pixels; a tight crop would otherwise ask for a huge canvas. */
@@ -42,7 +42,7 @@ export function Sidebar({ pages, sources, fields, selection, current, width, onS
   const [gap, setGap] = useState<number | null>(null)
   const [dragging, setDragging] = useState(false)
   const hoverable = useMedia(FINE) && !!actions
-  const thumbWidth = width - 56
+  const thumbWidth = width - 2 * MARGIN
 
   useEffect(() => {
     if (!current) return

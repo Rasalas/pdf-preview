@@ -1,5 +1,6 @@
 import type { Session } from '../persist'
 import { TOUCH, useMedia } from '../useMedia'
+import { Icon } from './icons'
 
 interface Props {
   session: Session | null
@@ -23,8 +24,14 @@ export function EmptyState({ session, onOpen, onBlank, onRestore, onDiscard, onA
       <h1>{touch ? 'PDFs und Bilder öffnen' : 'PDFs und Bilder hierher ziehen'}</h1>
       <p>Kombinieren, umsortieren, drehen und als neues PDF sichern. Deine Dateien bleiben in diesem Browser und werden nirgends hochgeladen.</p>
       <div className="empty-actions">
-        <button className="button is-primary" onClick={onOpen}>Dateien auswählen …</button>
-        <button className="button" onClick={onBlank}>Leeres Dokument</button>
+        <button className="button is-primary" onClick={onOpen}>
+          <Icon name="open" width={16} />
+          Dateien auswählen …
+        </button>
+        <button className="button" onClick={onBlank}>
+          <Icon name="blank" width={16} />
+          Leeres Dokument
+        </button>
       </div>
       {session ? (
         <div className="restore">
@@ -35,8 +42,14 @@ export function EmptyState({ session, onOpen, onBlank, onRestore, onDiscard, onA
               {new Date(session.savedAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}
             </span>
           </div>
-          <button className="button is-primary" onClick={onRestore}>Wiederherstellen</button>
-          <button className="button is-quiet" onClick={onDiscard}>Verwerfen</button>
+          <button className="button is-primary" onClick={onRestore}>
+            <Icon name="restore" width={15} />
+            Wiederherstellen
+          </button>
+          <button className="button is-quiet" onClick={onDiscard}>
+            <Icon name="trash" width={15} />
+            Verwerfen
+          </button>
         </div>
       ) : null}
       <footer className="empty-footer">

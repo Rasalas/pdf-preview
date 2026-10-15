@@ -11,6 +11,8 @@
   --sidebar: #ebeae6;
   --canvas: #d9d8d4;
   --surface: #fff;
+  /* Focused text fields. Pages stay white in dark mode, fields do not. */
+  --field: #fff;
   --text: #1d1d1b;
   --text-2: #6c6b66;
   --text-3: #9b9a94;
@@ -39,6 +41,7 @@
     --chrome-solid: #282826;
     --sidebar: #232321;
     --canvas: #1a1a19;
+    --field: #191918;
     --text: #ecebe6;
     --text-2: #a3a29c;
     --text-3: #75746f;
@@ -114,7 +117,7 @@ button { font: inherit; color: inherit; }
   text-overflow: ellipsis;
 }
 .title-input:hover { border-color: var(--hairline); }
-.title-input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.title-input:focus { outline: none; border-color: var(--accent); background: var(--field); }
 .title-input::placeholder { color: var(--text); }
 .title-meta { color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
@@ -190,25 +193,26 @@ button { font: inherit; color: inherit; }
 .thumb.gap-after::after { bottom: -1.5px; }
 .gap-hover { transform: translateY(-50%); animation: fade-in 0.1s; }
 
-/* Page actions under the pointer. Coordinates come from PageHover. */
+/* Page actions beside the hovered page. Coordinates come from PageHover. */
 .thumb-actions {
   position: absolute;
   z-index: 3;
   display: flex;
+  flex-direction: column;
   gap: 2px;
-  padding: 3px;
-  border-radius: 8px;
+  padding: 2px;
+  border-radius: 7px;
   background: var(--chrome-solid);
   box-shadow: var(--pill-shadow);
-  transform: translate(-50%, 6px);
+  transform: translateX(-100%);
   animation: fade-in 0.12s 0.04s both;
   user-select: none;
 }
 .thumb-actions button {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: 0;
   border-radius: 5px;
@@ -216,6 +220,8 @@ button { font: inherit; color: inherit; }
   color: var(--text-2);
   cursor: default;
 }
+/* Set apart, so a click meant for the buttons above does not delete. */
+.thumb-actions button.is-danger { margin-top: 6px; }
 .thumb-actions button:hover { background: var(--control-hover); color: var(--text); }
 .thumb-actions button.is-danger:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 .gap-add {
@@ -372,6 +378,8 @@ button { font: inherit; color: inherit; }
 .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--accent); color: var(--on-accent); outline: none; }
 .menu button:disabled { color: var(--text-3); }
 .menu button.is-danger:not(:disabled):not(:hover):not(:focus-visible) { color: var(--danger); }
+.menu-label { display: flex; align-items: center; gap: 8px; }
+.menu-icon-slot { width: 15px; flex: none; }
 .menu kbd { font: inherit; color: var(--text-3); }
 .menu button:hover kbd, .menu button:focus-visible kbd { color: inherit; opacity: 0.8; }
 .menu-separator { height: 1px; margin: 5px 10px; background: var(--hairline); }
@@ -416,7 +424,7 @@ button { font: inherit; color: inherit; }
   color: var(--text-3);
   transition: width 0.2s;
 }
-.search:focus-within { width: 240px; background: var(--surface); box-shadow: 0 0 0 2px var(--accent); }
+.search:focus-within { width: 240px; background: var(--field); box-shadow: 0 0 0 2px var(--accent); }
 .search input { flex: 1; min-width: 0; border: 0; background: none; font: inherit; color: var(--text); outline: none; }
 .search input::-webkit-search-cancel-button { display: none; }
 .search-count { flex: none; color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; }
