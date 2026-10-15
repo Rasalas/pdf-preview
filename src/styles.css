@@ -11,6 +11,8 @@
   --sidebar: #ebeae6;
   --canvas: #d9d8d4;
   --surface: #fff;
+  /* Focused text fields. Pages stay white in dark mode, fields do not. */
+  --field: #fff;
   --text: #1d1d1b;
   --text-2: #6c6b66;
   --text-3: #9b9a94;
@@ -39,6 +41,7 @@
     --chrome-solid: #282826;
     --sidebar: #232321;
     --canvas: #1a1a19;
+    --field: #191918;
     --text: #ecebe6;
     --text-2: #a3a29c;
     --text-3: #75746f;
@@ -114,7 +117,7 @@ button { font: inherit; color: inherit; }
   text-overflow: ellipsis;
 }
 .title-input:hover { border-color: var(--hairline); }
-.title-input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.title-input:focus { outline: none; border-color: var(--accent); background: var(--field); }
 .title-input::placeholder { color: var(--text); }
 .title-meta { color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
@@ -421,7 +424,7 @@ button { font: inherit; color: inherit; }
   color: var(--text-3);
   transition: width 0.2s;
 }
-.search:focus-within { width: 240px; background: var(--surface); box-shadow: 0 0 0 2px var(--accent); }
+.search:focus-within { width: 240px; background: var(--field); box-shadow: 0 0 0 2px var(--accent); }
 .search input { flex: 1; min-width: 0; border: 0; background: none; font: inherit; color: var(--text); outline: none; }
 .search input::-webkit-search-cancel-button { display: none; }
 .search-count { flex: none; color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; }
