@@ -152,6 +152,7 @@ export function MarkupBar(p: Props) {
       )}
       {p.compact ? (
         <button className="button is-primary markup-done" onClick={p.onDone}>
+          <Icon name="check" width={15} />
           Fertig
         </button>
       ) : (

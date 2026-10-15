@@ -375,6 +375,8 @@ button { font: inherit; color: inherit; }
 .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--accent); color: var(--on-accent); outline: none; }
 .menu button:disabled { color: var(--text-3); }
 .menu button.is-danger:not(:disabled):not(:hover):not(:focus-visible) { color: var(--danger); }
+.menu-label { display: flex; align-items: center; gap: 8px; }
+.menu-icon-slot { width: 15px; flex: none; }
 .menu kbd { font: inherit; color: var(--text-3); }
 .menu button:hover kbd, .menu button:focus-visible kbd { color: inherit; opacity: 0.8; }
 .menu-separator { height: 1px; margin: 5px 10px; background: var(--hairline); }

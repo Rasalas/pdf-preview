@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Icon } from './icons'
 
 interface Props {
   name: string
@@ -60,9 +61,11 @@ export function PasswordDialog({ name, wrong, onAnswer }: Props) {
         <div className="dialog-actions">
           <span />
           <button type="button" className="button" disabled={busy} onClick={() => dialog.current!.close()}>
+            <Icon name="close" width={15} />
             Überspringen
           </button>
           <button type="submit" className="button is-primary" disabled={!password || busy}>
+            <Icon name="unlock" width={15} />
             Öffnen
           </button>
         </div>

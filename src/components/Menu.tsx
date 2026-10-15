@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Icon, type IconName } from './icons'
 
-export type MenuItem = { label: string; shortcut?: string; disabled?: boolean; danger?: boolean; run: () => void } | 'separator'
+export type MenuItem = { label: string; icon?: IconName; shortcut?: string; disabled?: boolean; danger?: boolean; run: () => void } | 'separator'
 
 interface Props {
   x: number
@@ -63,7 +64,10 @@ export function Menu({ x, y, items, onClose, above = false }: Props) {
               item.run()
             }}
           >
-            <span>{item.label}</span>
+            <span className="menu-label">
+              {item.icon ? <Icon name={item.icon} width={15} /> : <span className="menu-icon-slot" />}
+              {item.label}
+            </span>
             {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
           </button>
         ),
