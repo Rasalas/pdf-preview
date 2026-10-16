@@ -20,11 +20,14 @@ import {
   setLineWidth,
   setStrokingRgbColor,
   stroke,
+  type PDFEmbeddedPage,
   type PDFFont,
+  type PDFImage,
   type PDFPage,
 } from 'pdf-lib'
 import { LINE_HEIGHT, TEXT_ASCENT, arrowHead, lineEnd, userSpaceMatrix } from '../model/annotations'
 import type { FieldValue, FieldValues } from '../model/forms'
+import { nibOutline } from '../model/nib'
 import type { OcrResults } from '../model/ocr'
 import type { Annotation, Page, Point, Rect, Source, Sources } from '../model/types'
 import { collectImages, compressImages, subProgress, type CompressStats } from './compress'
@@ -103,12 +106,30 @@ export async function buildPdf(
   const cropped: { page: PDFPage; rotate: number; crop: Rect }[] = []
   let font: PDFFont | undefined
   const getFont = async () => (font ??= await out.embedFont(StandardFonts.Helvetica))
+  // A laid-on page is built on its own, with its markup, crop and rotation, then drawn like a picture.
+  const pictures = new Map<string, Promise<PDFImage>>()
+  const tools: DrawTools = {
+    getFont,
+    picture: (src) => {
+      let image = pictures.get(src)
+      if (!image) pictures.set(src, (image = out.embedPng(src)))
+      return image
+    },
+    embed: async (page) => {
+      const built = await PDFDocument.load(await buildPdf([page], sources, '', undefined, { fields: options.fields, ocr: options.ocr }))
+      const first = built.getPage(0)
+      if (!first.node.Contents()) return null
+      const { x, y, width, height } = first.getCropBox()
+      const embedded = await out.embedPage(first, { left: x, bottom: y, right: x + width, top: y + height })
+      return { embedded, rotate: ((first.getRotation().angle % 360) + 360) % 360 }
+    },
+  }
   for (const [i, page] of pages.entries()) {
     const source = sources[page.sourceId]
     if (source.kind === 'pdf') {
       const pdfPage = out.addPage(copied.get(page)!)
       const own = pdfPage.getRotation().angle
-      if (page.annotations?.length) await drawAnnotations(out, pdfPage, own, page.annotations, getFont)
+      if (page.annotations?.length) await drawAnnotations(out, pdfPage, own, page.annotations, tools)
       const read = options.ocr?.[source.id]?.[page.index]
       if (read?.lines.length) drawOcrText(out, pdfPage, own, read, source.pages[page.index], await getFont(), page.crop)
       pdfPage.setRotation(degrees((own + page.rotation) % 360))
@@ -124,7 +145,7 @@ export async function buildPdf(
         }
         drawImage(pdfPage, image, width, height)
       }
-      if (page.annotations?.length) await drawAnnotations(out, pdfPage, 0, page.annotations, getFont)
+      if (page.annotations?.length) await drawAnnotations(out, pdfPage, 0, page.annotations, tools)
       const read = options.ocr?.[source.id]?.[page.index]
       if (read?.lines.length) drawOcrText(out, pdfPage, 0, read, source.pages[page.index], await getFont(), page.crop)
       pdfPage.setRotation(degrees(page.rotation))
@@ -145,6 +166,14 @@ export async function buildPdf(
   return out.save()
 }
 
+interface DrawTools {
+  getFont: () => Promise<PDFFont>
+  /** A PNG data URL embedded once per document. */
+  picture: (src: string) => Promise<PDFImage>
+  /** Null for a page with nothing on it. */
+  embed: (page: Page) => Promise<{ embedded: PDFEmbeddedPage; rotate: number } | null>
+}
+
 /**
  * Draws annotations into the page content ("flattened"), so every viewer shows them.
  * Coordinates are set up so that drawing happens in the page's displayed orientation, y up.
@@ -154,7 +183,7 @@ async function drawAnnotations(
   page: PDFPage,
   rotate: number,
   annotations: Annotation[],
-  getFont: () => Promise<PDFFont>,
+  { getFont, embed, picture }: DrawTools,
 ) {
   // Isolate existing content so its graphics state cannot leak into ours.
   page.node.normalize()
@@ -169,6 +198,15 @@ async function drawAnnotations(
   page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...userSpaceMatrix(rotate, box)))
 
   for (const a of annotations) {
+    if (a.type === 'page') {
+      const placed = await embed(a.page)
+      if (placed) drawPlaced(page, placed.embedded, placed.rotate, { x: a.x, y: height - a.y - a.h, w: a.w, h: a.h })
+      continue
+    }
+    if (a.type === 'image') {
+      page.drawImage(await picture(a.src), { x: a.x, y: height - a.y - a.h, width: a.w, height: a.h })
+      continue
+    }
     const color = hexToRgb(a.color)
     switch (a.type) {
       case 'highlight':
@@ -190,7 +228,15 @@ async function drawAnnotations(
         }
         break
       case 'ink':
-        strokePath(page, a.paths.map((p) => p.map(flip)), color, a.width)
+        if (a.nib) {
+          for (const [i, path] of a.paths.entries()) {
+            const outline = nibOutline(path, a.width, a.pressures?.[i]).map(flip)
+            if (outline.length < 3) continue
+            page.pushOperators(pushGraphicsState(), setFillingRgbColor(color.red, color.green, color.blue), moveTo(...outline[0]), ...outline.slice(1).map((p) => lineTo(...p)), closePath(), fill(), popGraphicsState())
+          }
+        } else {
+          strokePath(page, a.paths.map((p) => p.map(flip)), color, a.width)
+        }
         break
       case 'text': {
         const f = await getFont()
@@ -208,6 +254,14 @@ async function drawAnnotations(
     }
   }
   page.pushOperators(popGraphicsState())
+}
+
+/** Draws an embedded page with its /Rotate into `box` (y up), which has the rotated proportions. */
+function drawPlaced(page: PDFPage, embedded: PDFEmbeddedPage, rotate: number, { x, y, w, h }: Rect) {
+  const scale = (rotate % 180 ? h : w) / embedded.width
+  // /Rotate turns clockwise; drawPage turns counter-clockwise about the origin it is given.
+  const [ox, oy] = { 0: [x, y], 90: [x, y + h], 180: [x + w, y + h], 270: [x + w, y] }[rotate] ?? [x, y]
+  page.drawPage(embedded, { x: ox, y: oy, xScale: scale, yScale: scale, rotate: degrees(-rotate) })
 }
 
 function hexToRgb(hex: string) {

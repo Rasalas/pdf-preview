@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'
-import { type MarkupStyle, type Signature, type Tool } from './components/AnnotationLayer'
+import { PlacedPages, type MarkupStyle, type Signature, type Tool } from './components/AnnotationLayer'
 import { AboutDialog } from './components/AboutDialog'
 import { BottomBar } from './components/BottomBar'
 import { EmptyState } from './components/EmptyState'
@@ -13,7 +13,9 @@ import type { PageActions } from './components/PageHover'
 import { PAGES_MIME, Sidebar } from './components/Sidebar'
 import { Viewer, type ActiveHit, type CropRequest, type Markup, type Zoom } from './components/Viewer'
 import { displayedSize } from './model/crop'
-import type { Page, Rect } from './model/types'
+import { pageNumbers } from './model/pages'
+import { SignatureFileError, exportSignatures, importSignatures } from './model/signatures'
+import type { Page, Point, Rect } from './model/types'
 import { isScan } from './ocr/scans'
 import { useRecognition, type Task } from './ocr/useRecognition'
 import type { CompressStats } from './pdf/compress'
@@ -49,7 +51,7 @@ type MenuState = { x: number; y: number } & (
   /** `from` is the page whose hover actions opened it, `on` the page of a context menu. */
   | { kind: 'page'; from?: string; on?: string }
   | { kind: 'gap'; at: number }
-  | { kind: 'save' | 'document' | 'more' }
+  | { kind: 'save' | 'document' | 'more' | 'add' }
 )
 
 export default function App() {
@@ -76,6 +78,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [dropping, setDropping] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const signatureInput = useRef<HTMLInputElement>(null)
   const insertAt = useRef<number | null>(null)
   // Saving starts only once the user has decided about a stored session, so it is never overwritten by accident.
   const [persisting, setPersisting] = useState(false)
@@ -295,7 +298,9 @@ export default function App() {
   }
 
   const insertBlank = (at = lastSelectedIndex()) => {
-    const ref = pages[at - 1] ?? pages[at]
+    // A picture's size makes a poor sheet; beside one, a blank page is A4.
+    const near = pages[at - 1] ?? pages[at]
+    const ref = near && state.sources[near.sourceId].kind !== 'image' ? near : undefined
     const size = ref ? state.sources[ref.sourceId].pages[ref.index] : A4
     setSession(null)
     setPersisting(true)
@@ -333,6 +338,14 @@ export default function App() {
       setTask(null)
     }
   }
+
+  // Memoised so drawings of laid-on pages do not reload on every render.
+  const placed = useMemo(() => ({ sources: state.sources, fields: state.fields }), [state.sources, state.fields])
+
+  const combine = (list: Page[]) => dispatch({ type: 'combine', ids: list.map((p) => p.id) })
+
+  const place = (target: string, at: Point, dragged: string, copy: boolean) =>
+    dispatch({ type: 'place', ids: selection.has(dragged) ? state.selection : [dragged], target, at, copy })
 
   const print = async () => {
     if (pages.length === 0) return
@@ -431,7 +444,7 @@ export default function App() {
   }, [cropping, pages])
 
   const selectedAnnotation = state.markup ? findAnnotation(pages, state.markup) : undefined
-  const selectedKind = !selectedAnnotation
+  const selectedKind = !selectedAnnotation || selectedAnnotation.type === 'page' || selectedAnnotation.type === 'image'
     ? null
     : selectedAnnotation.type === 'highlight'
       ? 'highlight'
@@ -448,6 +461,7 @@ export default function App() {
   const changeStyle = (patch: Partial<MarkupStyle>) => {
     setStyle((s) => ({ ...s, ...patch }))
     updateSelected((a) => {
+      if (a.type === 'page' || a.type === 'image') return a
       if (patch.color && a.type !== 'highlight') return { ...a, color: patch.color }
       if (patch.width && 'width' in a && a.type !== 'ink') return { ...a, width: patch.width }
       if (patch.size && a.type === 'text') return { ...a, size: patch.size }
@@ -483,7 +497,7 @@ export default function App() {
     },
     onAdd: (pageId, annotation) => {
       // Like Preview: after placing a shape you are back to editing it; drawing and highlighting continue.
-      const keep = tool === 'ink' || tool === 'highlight'
+      const keep = tool === 'ink' || tool === 'nib' || tool === 'highlight'
       dispatch({ type: 'annotate', pageId, annotation, select: !keep })
       if (!keep) setTool('select')
     },
@@ -495,12 +509,26 @@ export default function App() {
   const count = selection.size
   const pageWord = count === 1 ? 'Seite' : `${count} Seiten`
 
+  /** One page: alone, so it can be resized, or with the next. Several: those, named, in the order of the list. */
+  const combineItems = (): MenuItem[] => {
+    if (count !== 1) {
+      return [{ label: `${pageNumbers(selectedPages.map((p) => pages.indexOf(p) + 1))} auf ein A4-Blatt legen`, icon: 'combine', disabled: count < 2, run: () => combine(selectedPages) }]
+    }
+    const [page] = selectedPages
+    const next = pages[pages.indexOf(page) + 1]
+    return [
+      { label: 'Auf ein A4-Blatt legen', icon: 'combine', disabled: state.sources[page.sourceId].kind === 'blank', run: () => combine([page]) },
+      { label: 'Mit nächster Seite auf ein A4-Blatt legen', icon: 'combine', disabled: !next, run: () => next && combine([page, next]) },
+    ]
+  }
+
   const pageMenu = (): MenuItem[] => [
     { label: 'Nach links drehen', icon: 'rotateLeft', shortcut: `${MOD}L`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: -90 }) },
     { label: 'Nach rechts drehen', icon: 'rotateRight', shortcut: `${MOD}R`, disabled: !has, run: () => dispatch({ type: 'rotate', delta: 90 }) },
     { label: 'Duplizieren', icon: 'duplicate', shortcut: `${MOD}D`, disabled: !has, run: () => dispatch({ type: 'duplicate' }) },
     { label: 'Text erkennen …', icon: 'scanText', disabled: !has || reading, run: () => recognise(selectedPages) },
     { label: 'Beschneiden …', icon: 'crop', shortcut: `${MOD}K`, disabled: !has, run: () => startCrop(menu?.kind === 'page' ? (menu.from ?? menu.on) : undefined) },
+    ...combineItems(),
     'separator',
     { label: 'Dateien danach einfügen …', icon: 'file', run: () => openFiles() },
     { label: 'Leere Seite danach einfügen', icon: 'blank', run: () => insertBlank() },
@@ -515,6 +543,11 @@ export default function App() {
     if (!selection.has(id)) dispatch({ type: 'select', id, mode: 'single' })
     setMenu({ x: e.clientX, y: e.clientY, kind: 'page', on: id })
   }
+
+  const addMenu = (): MenuItem[] => [
+    { label: 'Dateien hinzufügen …', icon: 'file', shortcut: `${MOD}O`, run: () => openFiles(pages.length) },
+    { label: 'Leere Seite hinzufügen', icon: 'blank', run: () => insertBlank(pages.length) },
+  ]
 
   const gapMenu = (at: number): MenuItem[] => [
     { label: 'Dateien hier einfügen …', icon: 'file', run: () => openFiles(at) },
@@ -546,7 +579,6 @@ export default function App() {
       setMenu({ x: anchor.right + 6, y: anchor.top, kind: 'page', from: id })
     },
     onGap: (at, anchor) => setMenu({ ...below(anchor), kind: 'gap', at }),
-    onAdd: () => openFiles(pages.length),
   }
 
   const closeDocument = () => {
@@ -827,6 +859,8 @@ export default function App() {
         chooseTool('signature')
       }}
       onNewSignature={() => setSignatureDialog(true)}
+      onImportSignatures={() => signatureInput.current!.click()}
+      onExportSignatures={() => download(new TextEncoder().encode(exportSignatures(signatures)), 'Unterschriften.json', 'application/json')}
       onDeleteSignature={(id) => {
         setSignatures((all) => all.filter((s) => s.id !== id))
         if (signature?.id === id) {
@@ -838,6 +872,7 @@ export default function App() {
   )
 
   return (
+    <PlacedPages value={placed}>
     <div className="app">
       <div className="chrome">
       <header className={`toolbar${compact ? ' is-compact' : ''}`}>
@@ -984,6 +1019,19 @@ export default function App() {
                   hits={q ? hits.pages : null}
                   actions={pageActions}
                 />
+                <button
+                  className={`sidebar-fab${menu?.kind === 'add' ? ' is-open' : ''}`}
+                  title="Dateien oder eine leere Seite hinzufügen"
+                  aria-haspopup="menu"
+                  aria-expanded={menu?.kind === 'add'}
+                  onClick={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect()
+                    setMenu(menu?.kind === 'add' ? null : { x: r.left, y: r.top - 6, kind: 'add' })
+                  }}
+                >
+                  <Icon name="plus" width={17} />
+                  <span>Hinzufügen</span>
+                </button>
                 <div className="sidebar-resize" onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Seitenleistenbreite" />
               </aside>
             ) : null}
@@ -1005,6 +1053,8 @@ export default function App() {
               crop={cropping}
               onCrop={applyCrop}
               onCancelCrop={endCrop}
+              onPlace={place}
+              onZoom={setZoom}
             />
           </>
         )}
@@ -1022,6 +1072,7 @@ export default function App() {
               { icon: 'down', label: 'Nach hinten', disabled: !has, run: () => dispatch({ type: 'nudge', delta: 1 }) },
               { icon: 'rotateRight', label: 'Drehen', disabled: !has, run: () => dispatch({ type: 'rotate', delta: 90 }) },
               { icon: 'duplicate', label: 'Duplizieren', disabled: !has, run: () => dispatch({ type: 'duplicate' }) },
+              { icon: 'combine', label: 'Auf A4', disabled: !has, run: () => combine(selectedPages) },
               { icon: 'trash', label: 'Löschen', disabled: !has, danger: true, run: () => dispatch({ type: 'remove' }) },
             ]}
           />
@@ -1057,6 +1108,25 @@ export default function App() {
           e.target.value = ''
         }}
       />
+      <input
+        ref={signatureInput}
+        type="file"
+        accept="application/json,.json,image/png,image/jpeg,image/webp,image/heic,.heic"
+        hidden
+        onChange={async (e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          if (!file) return
+          try {
+            const isJson = file.type === 'application/json' || /\.json$/i.test(file.name)
+            const added = isJson ? importSignatures(await file.text(), signatures) : [await (await import('./pdf/signature-image')).signatureFromImage(file)]
+            setSignatures((all) => [...all, ...added])
+            toast(added.length ? `${added.length === 1 ? 'Eine Unterschrift' : `${added.length} Unterschriften`} importiert.` : 'Diese Unterschriften sind schon vorhanden.', true)
+          } catch (err) {
+            toast(err instanceof SignatureFileError ? err.message : 'Die Unterschriften konnten nicht gelesen werden.')
+          }
+        }}
+      />
 
       {about ? <AboutDialog onClose={() => setAbout(false)} /> : null}
       {jbig2Warning ? (
@@ -1084,8 +1154,8 @@ export default function App() {
         />
       ) : null}
 
-      {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : menu.kind === 'more' ? moreMenu() : menu.kind === 'gap' ? gapMenu(menu.at) : menu.kind === 'save' ? saveMenu() : documentMenu()}
-          above={menu.kind === 'more'} onClose={() => setMenu(null)} /> : null}
+      {menu ? <Menu x={menu.x} y={menu.y} items={menu.kind === 'page' ? pageMenu() : menu.kind === 'more' ? moreMenu() : menu.kind === 'gap' ? gapMenu(menu.at) : menu.kind === 'save' ? saveMenu() : menu.kind === 'add' ? addMenu() : documentMenu()}
+          above={menu.kind === 'more' || menu.kind === 'add'} onClose={() => setMenu(null)} /> : null}
 
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (
@@ -1109,6 +1179,7 @@ export default function App() {
         ))}
       </div>
     </div>
+    </PlacedPages>
   )
 }
 
@@ -1120,13 +1191,13 @@ function ToolButton({ icon, label, pressed, disabled, onClick }: { icon: IconNam
   )
 }
 
-async function download(bytes: Uint8Array, name: string) {
+async function download(bytes: Uint8Array, name: string, type = 'application/pdf') {
   if (isDesktop) {
     const { saveWithDialog } = await import('./desktop')
     await saveWithDialog(bytes, name)
     return
   }
-  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type }))
   const a = document.createElement('a')
   a.href = url
   a.download = name

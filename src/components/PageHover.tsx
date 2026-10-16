@@ -15,7 +15,6 @@ export interface PageActions {
   onRemove: (id: string) => void
   onMore: (id: string, anchor: DOMRect) => void
   onGap: (at: number, anchor: DOMRect) => void
-  onAdd: () => void
 }
 
 interface Props {
@@ -157,7 +156,6 @@ const same = (a: Spot | null, b: Spot | null) =>
 
 /** The page or gap under the pointer, or null when it is on something else. */
 function spotAt(root: HTMLElement, pages: Page[], target: HTMLElement, y: number): Spot | null {
-  if (target.closest('.add-tile')) return null
   const thumb = target.closest<HTMLElement>('.thumb')
   if (!thumb) {
     // The list's padding above the first page.

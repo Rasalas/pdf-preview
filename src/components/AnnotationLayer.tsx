@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   LINE_HEIGHT,
   TEXT_ASCENT,
@@ -9,11 +9,18 @@ import {
   rotationTransform,
   toPageSpace,
   translate,
+  viewMatrix,
 } from '../model/annotations'
+import { visibleRect } from '../model/crop'
+import type { FieldValues } from '../model/forms'
 import { newId } from '../model/ids'
-import type { Annotation, PageSize, Point, Rect, Rotation } from '../model/types'
+import { nibOutline } from '../model/nib'
+import { SIGNATURE_INK, type Signature } from '../model/signatures'
+import type { Annotation, PageSize, Point, Rect, Rotation, Sources } from '../model/types'
+import { pageEntries } from '../pdf/forms'
+import { thumbnailUrl } from '../pdf/pdfjs'
 
-export type Tool = 'select' | 'highlight' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'ink' | 'text' | 'signature'
+export type Tool = 'select' | 'highlight' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'ink' | 'nib' | 'text' | 'signature'
 
 export interface MarkupStyle {
   color: string
@@ -21,13 +28,7 @@ export interface MarkupStyle {
   size: number
 }
 
-/** A signature as paths inside a box of `w` × `h`. */
-export interface Signature {
-  id: string
-  w: number
-  h: number
-  paths: Point[][]
-}
+export type { Signature } from '../model/signatures'
 
 export interface Interaction {
   tool: Tool
@@ -50,6 +51,9 @@ interface Props {
   interaction?: Interaction
 }
 
+/** What pages laid onto other pages are drawn from. */
+export const PlacedPages = createContext<{ sources: Sources; fields: FieldValues }>({ sources: {}, fields: {} })
+
 export const FONT = 'Helvetica, Arial, sans-serif'
 const SIGNATURE_WIDTH = 160
 
@@ -59,6 +63,10 @@ export function measureText(text: string, size: number): number {
   measureCtx.font = `${size}px ${FONT}`
   return measureCtx.measureText(text).width
 }
+
+// Strokes and drags in progress; a second finger on the page cancels them (see Viewer).
+const inProgress = new Set<() => void>()
+export const cancelStrokes = () => inProgress.forEach((cancel) => cancel())
 
 type Drag = { kind: 'move' | 'resize' | 'p1' | 'p2'; start: Point; original: Annotation; box: Rect }
 
@@ -75,16 +83,31 @@ export function AnnotationLayer({ annotations, size, rotation, scale, interactio
     return toPageSpace([(e.clientX - r.left) / scale, (e.clientY - r.top) / scale], size, rotation)
   }
 
-  // Pointer moves are tracked on window so drags keep working outside the page.
-  const track = (onMove: (p: Point) => void, onEnd: (p: Point) => void) => {
-    const move = (e: PointerEvent) => onMove(pointAt(e))
+  // Pointer moves are tracked on window so drags keep working outside the page. Only the pointer
+  // that started counts, so a second finger cannot draw into the stroke.
+  const track = (start: ReactPointerEvent, onMove: (p: Point, e: PointerEvent) => void, onEnd: (p: Point) => void, onCancel: () => void) => {
+    const id = start.pointerId
+    const move = (e: PointerEvent) => e.pointerId === id && onMove(pointAt(e), e)
     const up = (e: PointerEvent) => {
+      if (e.pointerId !== id) return
+      stop()
+      if (e.type === 'pointercancel') onCancel()
+      else onEnd(pointAt(e))
+    }
+    const cancel = () => {
+      stop()
+      onCancel()
+    }
+    const stop = () => {
       removeEventListener('pointermove', move)
       removeEventListener('pointerup', up)
-      onEnd(pointAt(e))
+      removeEventListener('pointercancel', up)
+      inProgress.delete(cancel)
     }
     addEventListener('pointermove', move)
     addEventListener('pointerup', up)
+    addEventListener('pointercancel', up)
+    inProgress.add(cancel)
   }
 
   const startDrawing = (e: ReactPointerEvent) => {
@@ -106,16 +129,25 @@ export function AnnotationLayer({ annotations, size, rotation, scale, interactio
       if (!sig) return
       const k = SIGNATURE_WIDTH / sig.w
       const [ox, oy] = [start[0] - (sig.w * k) / 2, start[1] - (sig.h * k) / 2]
+      if (sig.image) {
+        interaction.onAdd({ id, type: 'image', src: sig.image, x: ox, y: oy, w: sig.w * k, h: sig.h * k })
+        return
+      }
       interaction.onAdd({
         id,
         type: 'ink',
-        color: style.color,
+        color: sig.color ?? SIGNATURE_INK,
         width: Math.max(1, style.width * 0.75),
         paths: sig.paths.map((path) => path.map(([x, y]): Point => [ox + x * k, oy + y * k])),
+        nib: true,
+        ...(sig.pressures ? { pressures: sig.pressures } : {}),
       })
       return
     }
 
+    // Only a stylus reports real pressure; the fountain pen goes by speed otherwise.
+    const pressureOf = (ev: { pointerType: string; pressure: number }) => (ev.pointerType === 'pen' && ev.pressure > 0 ? ev.pressure : 0)
+    const pressure = pressureOf(e)
     const shape = (p: Point): Annotation => {
       switch (tool) {
         case 'rect':
@@ -124,6 +156,8 @@ export function AnnotationLayer({ annotations, size, rotation, scale, interactio
         case 'line':
         case 'arrow':
           return { id, type: 'line', arrow: tool === 'arrow', color: style.color, width: style.width, p1: start, p2: p }
+        case 'nib':
+          return { id, type: 'ink', nib: true, color: style.color, width: style.width, paths: [[start]], ...(pressure ? { pressures: [[pressure]] } : {}) }
         default:
           return { id, type: 'ink', color: style.color, width: style.width, paths: [[start]] }
       }
@@ -131,12 +165,14 @@ export function AnnotationLayer({ annotations, size, rotation, scale, interactio
     let current = shape(start)
     setDraft(current)
     track(
-      (p) => {
+      e,
+      (p, ev) => {
         if (current.type === 'ink') {
           const path = current.paths[0]
           const last = path.at(-1)!
           if (Math.hypot(p[0] - last[0], p[1] - last[1]) * scale < 1.5) return
           current = { ...current, paths: [[...path, p]] }
+          if (current.pressures) current.pressures = [[...current.pressures[0], pressureOf(ev) || current.pressures[0].at(-1)!]]
         } else {
           current = shape(p)
         }
@@ -146,6 +182,7 @@ export function AnnotationLayer({ annotations, size, rotation, scale, interactio
         setDraft(null)
         interaction.onAdd(withMinimumSize(current))
       },
+      () => setDraft(null),
     )
   }
 
@@ -157,6 +194,7 @@ export function AnnotationLayer({ annotations, size, rotation, scale, interactio
     const drag: Drag = { kind, start: pointAt(e), original: a, box: bounds(a, measureText) }
     let result: Annotation = a
     track(
+      e,
       (p) => {
         result = dragResult(drag, p)
         setPreview(result)
@@ -165,6 +203,7 @@ export function AnnotationLayer({ annotations, size, rotation, scale, interactio
         setPreview(null)
         if (result !== a) interaction.onUpdate(result)
       },
+      () => setPreview(null),
     )
   }
 
@@ -238,6 +277,7 @@ function Shape({ a }: { a: Annotation }) {
       )
     }
     case 'ink':
+      if (a.nib) return <path d={nibPath(a)} fill={a.color} />
       return <path d={inkPath(a.paths)} fill="none" stroke={a.color} strokeWidth={a.width} strokeLinecap="round" strokeLinejoin="round" />
     case 'text':
       return (
@@ -249,7 +289,43 @@ function Shape({ a }: { a: Annotation }) {
           ))}
         </text>
       )
+    case 'page':
+      return <PlacedPage a={a} />
+    case 'image':
+      return <image href={a.src} x={a.x} y={a.y} width={a.w} height={a.h} preserveAspectRatio="none" />
   }
+}
+
+function PlacedPage({ a }: { a: Annotation & { type: 'page' } }) {
+  const { sources, fields } = useContext(PlacedPages)
+  const { page } = a
+  const source = sources[page.sourceId]
+  const entered = fields[page.sourceId]
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!source || source.kind === 'blank') return
+    let live = true
+    const size = source.pages[page.index]
+    pageEntries(source, page.index, entered)
+      .catch(() => null)
+      .then((entries) => thumbnailUrl(source, page.index, 0, Math.min(1600, Math.round(size.width * 2)), entries))
+      .then((u) => live && setUrl(u))
+      .catch((e) => console.error('Aufgelegte Seite fehlgeschlagen', e))
+    return () => {
+      live = false
+    }
+  }, [source, page.index, entered])
+  if (!source) return null
+  const size = source.pages[page.index]
+  const view = visibleRect(size, page)
+  return (
+    <svg className="ann-placed" x={a.x} y={a.y} width={a.w} height={a.h} viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} preserveAspectRatio="none">
+      <g transform={`matrix(${viewMatrix(size, page.rotation).join(' ')})`}>
+        {url ? <image href={url} width={size.width} height={size.height} preserveAspectRatio="none" /> : null}
+        {page.annotations?.map((n) => <Shape key={n.id} a={n} />)}
+      </g>
+    </svg>
+  )
 }
 
 /** Invisible, wider copies of thin shapes so they are easy to click. */
@@ -264,7 +340,9 @@ function HitArea({ a, hitWidth }: { a: Annotation; hitWidth: number }) {
       return <line x1={a.p1[0]} y1={a.p1[1]} x2={a.p2[0]} y2={a.p2[1]} {...common} strokeWidth={a.width + hitWidth} />
     case 'ink':
       return <path d={inkPath(a.paths)} {...common} strokeWidth={a.width + hitWidth} strokeLinecap="round" />
-    case 'text': {
+    case 'text':
+    case 'page':
+    case 'image': {
       const b = bounds(a, measureText)
       return <rect x={b.x} y={b.y} width={b.w} height={b.h} fill="transparent" pointerEvents="fill" />
     }
@@ -355,8 +433,8 @@ function dragResult(drag: Drag, p: Point): Annotation {
   const { box } = drag
   let w = Math.max(4, box.w + dx)
   let h = Math.max(4, box.h + dy)
-  // Text and signatures keep their proportions.
-  if (a.type === 'text' || a.type === 'ink') {
+  // Text, signatures, pictures and laid-on pages keep their proportions.
+  if (a.type === 'text' || a.type === 'ink' || a.type === 'page' || a.type === 'image') {
     const k = Math.max(w / Math.max(box.w, 1), h / Math.max(box.h, 1))
     w = box.w * k
     h = box.h * k
@@ -375,6 +453,19 @@ function withMinimumSize(a: Annotation): Annotation {
     return { ...a, p2: [a.p1[0] + 100, a.p1[1]] }
   }
   return a
+}
+
+function nibPath(a: Annotation & { type: 'ink' }): string {
+  return nibPaths(a.paths, a.width, a.pressures)
+}
+
+/** SVG path data of fountain-pen strokes, to be filled. */
+export function nibPaths(paths: Point[][], width: number, pressures?: number[][]): string {
+  return paths
+    .map((path, i) => nibOutline(path, width, pressures?.[i]))
+    .filter((o) => o.length)
+    .map((o) => `M${o.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join('L')}Z`)
+    .join('')
 }
 
 export function inkPath(paths: Point[][]): string {

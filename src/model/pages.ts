@@ -1,5 +1,7 @@
 import type { Page, PageSize, Rect, Rotation } from './types'
 
+export const A4: PageSize = { width: 595.28, height: 841.89 }
+
 export function insertPages(pages: Page[], added: Page[], at: number): Page[] {
   const i = clamp(at, 0, pages.length)
   return [...pages.slice(0, i), ...added, ...pages.slice(i)]
@@ -63,3 +65,18 @@ export function rotatedSize(size: PageSize, rotation: Rotation): PageSize {
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
+
+/** "Seiten 1 und 2", "Seiten 1–3 und 5". */
+export function pageNumbers(numbers: number[]): string {
+  const runs: string[] = []
+  for (let i = 0; i < numbers.length; ) {
+    let j = i
+    while (j + 1 < numbers.length && numbers[j + 1] === numbers[j] + 1) j++
+    // Two neighbours read better on their own than as a range.
+    if (j - i >= 2) runs.push(`${numbers[i]}–${numbers[j]}`)
+    else runs.push(...numbers.slice(i, j + 1).map(String))
+    i = j + 1
+  }
+  const list = runs.length > 1 ? `${runs.slice(0, -1).join(', ')} und ${runs.at(-1)}` : runs[0]
+  return `${numbers.length === 1 ? 'Seite' : 'Seiten'} ${list}`
+}

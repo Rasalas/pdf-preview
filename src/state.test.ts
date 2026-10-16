@@ -24,6 +24,67 @@ describe('reducer', () => {
     expect(labels(s)).toBe('a1 a2')
   })
 
+  it('lays pages onto a new sheet where the first was, undoably', () => {
+    let s = run({ type: 'import', sources: [source('a', 4)], before: null })
+    const [, p2, , p4] = pagesOf(s)
+    s = reducer(s, { type: 'combine', ids: [p4.id, p2.id] })
+    const sheet = pagesOf(s)[1]
+    expect(pagesOf(s)).toHaveLength(3)
+    expect(s.sources[sheet.sourceId].kind).toBe('blank')
+    // In the order of the list, whatever order they were picked in.
+    expect(sheet.annotations?.map((a) => a.type === 'page' && a.page.id)).toEqual([p2.id, p4.id])
+    expect(s.selection).toEqual([sheet.id])
+    s = reducer(s, { type: 'undo' })
+    expect(labels(s)).toBe('a1 a2 a3 a4')
+  })
+
+  it('moves a dropped page onto another, upright on the turned host, or copies it', () => {
+    let s = run({ type: 'import', sources: [source('a', 3)], before: null })
+    const [p1, p2, p3] = pagesOf(s)
+    s = reducer(s, { type: 'select', id: p1.id, mode: 'single' })
+    s = reducer(s, { type: 'rotate', delta: 90 })
+    s = reducer(s, { type: 'place', ids: [p2.id], target: p1.id, at: [0.5, 0.5], copy: false })
+    expect(labels(s)).toBe('a1 a3')
+    const laid = pagesOf(s)[0].annotations![0]
+    expect(laid.type === 'page' && laid.page.rotation).toBe(270)
+    expect(s.markup).toEqual({ pageId: p1.id, id: laid.id })
+    s = reducer(s, { type: 'place', ids: [p3.id], target: p1.id, at: null, copy: true })
+    expect(labels(s)).toBe('a1 a3')
+    expect(pagesOf(s)[0].annotations).toHaveLength(2)
+    // A page cannot be laid onto itself.
+    expect(reducer(s, { type: 'place', ids: [p1.id], target: p1.id, at: null, copy: false })).toBe(s)
+  })
+
+  it('puts a picture dropped on a picture side by side with it on a new sheet', () => {
+    const photo = (id: string): Source => ({ ...source(id, 1), kind: 'image', mime: 'image/png', pages: [{ width: 720, height: 500 }] })
+    let s = run({ type: 'import', sources: [photo('a'), photo('b')], before: null })
+    const [a, b] = pagesOf(s)
+    s = reducer(s, { type: 'place', ids: [b.id], target: a.id, at: [100, 100], copy: false })
+    const [sheet] = pagesOf(s)
+    expect(pagesOf(s)).toHaveLength(1)
+    expect(s.sources[sheet.sourceId].kind).toBe('blank')
+    // Let go in the upper half: the dropped picture comes first.
+    const laid = sheet.annotations!.flatMap((x) => (x.type === 'page' ? [x] : []))
+    expect(laid.map((x) => x.page.sourceId)).toEqual(['b', 'a'])
+    expect(laid[0].y + laid[0].h).toBeLessThan(laid[1].y)
+  })
+
+  it('lays every page on a sheet out anew, the dropped one where it was let go', () => {
+    const photo = (id: string): Source => ({ ...source(id, 1), kind: 'image', mime: 'image/png', pages: [{ width: 720, height: 500 }] })
+    let s = run({ type: 'import', sources: [photo('a'), photo('b'), photo('c')], before: null })
+    const [a, b, c] = pagesOf(s)
+    s = reducer(s, { type: 'combine', ids: [a.id, b.id] })
+    const sheet = pagesOf(s)[0]
+    const [first] = sheet.annotations! as { x: number; y: number; w: number; h: number }[]
+    // Dropped above the first picture.
+    s = reducer(s, { type: 'place', ids: [c.id], target: sheet.id, at: [300, first.y / 2], copy: false })
+    const laid = pagesOf(s)[0].annotations!.flatMap((x) => (x.type === 'page' ? [x] : []))
+    const order = [...laid].sort((x, y) => x.y - y.y).map((x) => x.page.sourceId)
+    expect(order).toEqual(['c', 'a', 'b'])
+    for (const [i, x] of laid.entries()) for (const y of laid.slice(i + 1)) expect(x.y + x.h <= y.y || y.y + y.h <= x.y).toBe(true)
+    expect(labels(s)).toBe(`${sheet.sourceId}1`)
+  })
+
   it('selects restored pages after undoing a delete', () => {
     let s = run({ type: 'import', sources: [source('a', 3)], before: null })
     const [, p2] = pagesOf(s)

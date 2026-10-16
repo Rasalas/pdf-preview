@@ -35,8 +35,13 @@ export type Annotation =
   | { id: string; type: 'highlight'; color: string; rects: Rect[] }
   | ({ id: string; type: 'rect' | 'ellipse'; color: string; width: number } & Rect)
   | { id: string; type: 'line'; color: string; width: number; arrow: boolean; p1: Point; p2: Point }
-  | { id: string; type: 'ink'; color: string; width: number; paths: Point[][] }
+  /** `nib`: drawn with the fountain pen, its width varying along the stroke; `pressures` from a stylus, per point. */
+  | { id: string; type: 'ink'; color: string; width: number; paths: Point[][]; nib?: boolean; pressures?: number[][] }
   | { id: string; type: 'text'; color: string; size: number; x: number; y: number; text: string }
+  /** A picture, such as a signature imported from a scan. `src` is a PNG data URL. */
+  | ({ id: string; type: 'image'; src: string } & Rect)
+  /** Another page laid onto this one, filling the box. It keeps its own rotation, crop and markup. */
+  | ({ id: string; type: 'page'; page: Page } & Rect)
 
 /** A page in the working document: a view onto one page of a source. */
 export interface Page {

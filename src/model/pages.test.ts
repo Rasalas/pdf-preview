@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cropPages, duplicatePages, insertPages, movePages, normalizeRotation, removePages, rotatePages } from './pages'
+import { cropPages, duplicatePages, insertPages, movePages, normalizeRotation, pageNumbers, removePages, rotatePages } from './pages'
 import type { Page } from './types'
 
 const doc = (...ids: string[]): Page[] => ids.map((id, index) => ({ id, sourceId: 's', index, rotation: 0 }))
@@ -65,5 +65,14 @@ describe('cropPages', () => {
     expect(cropPages(doc('a'), new Map([['a', undefined]]))).toHaveLength(1)
     const plain = doc('a')
     expect(cropPages(plain, new Map([['a', undefined]]))).toBe(plain)
+  })
+})
+
+describe('pageNumbers', () => {
+  it('names pages, and runs of three or more as a range', () => {
+    expect(pageNumbers([3])).toBe('Seite 3')
+    expect(pageNumbers([1, 2])).toBe('Seiten 1 und 2')
+    expect(pageNumbers([1, 2, 3, 5])).toBe('Seiten 1–3 und 5')
+    expect(pageNumbers([2, 4, 6])).toBe('Seiten 2, 4 und 6')
   })
 })

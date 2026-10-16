@@ -47,7 +47,7 @@ export function saveSession(title: string, pages: Page[], sources: Sources, fiel
   const used: Sources = {}
   const usedFields: FieldValues = {}
   const usedOcr: OcrResults = {}
-  for (const p of pages) {
+  for (const p of withPlaced(pages)) {
     used[p.sourceId] = sources[p.sourceId]
     if (fields[p.sourceId]) usedFields[p.sourceId] = fields[p.sourceId]
     const read = ocr[p.sourceId]?.[p.index]
@@ -55,6 +55,11 @@ export function saveSession(title: string, pages: Page[], sources: Sources, fiel
   }
   const session: Session = { title, pages, sources: used, fields: usedFields, ocr: usedOcr, savedAt: Date.now() }
   return run('readwrite', (s) => s.put(session, KEY)).catch(() => undefined)
+}
+
+/** The pages and every page laid onto them, however deep. */
+function withPlaced(pages: Page[]): Page[] {
+  return pages.flatMap((p) => [p, ...withPlaced((p.annotations ?? []).flatMap((a) => (a.type === 'page' ? [a.page] : [])))])
 }
 
 export const clearSession = () => run('readwrite', (s) => s.delete(KEY)).catch(() => undefined)

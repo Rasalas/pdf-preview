@@ -61,6 +61,7 @@ describe('buildPdf with annotations', () => {
           { id: 'e', type: 'ellipse', color: '#0000ff', width: 2, x: 10, y: 10, w: 50, h: 30 },
           { id: 'l', type: 'line', color: '#000000', width: 2, arrow: true, p1: [0, 0], p2: [40, 40] },
           { id: 'i', type: 'ink', color: '#000000', width: 2, paths: [[[0, 0], [5, 5], [9, 2]], [[3, 3]]] },
+          { id: 'n', type: 'ink', nib: true, color: '#000000', width: 2, paths: [[[0, 0], [5, 5], [9, 2]], [[3, 3]]], pressures: [[0.2, 0.5, 0.8], [0.5]] },
           { id: 't', type: 'text', color: '#000000', size: 12, x: 10, y: 100, text: 'Grüße\n€ 5 ✓' },
         ],
       },
@@ -68,5 +69,19 @@ describe('buildPdf with annotations', () => {
     const out = await PDFDocument.load(await buildPdf(pages, { rotated: a }, 'Annotiert'))
     expect(out.getPage(0).getRotation().angle).toBe(180)
     expect(out.getPage(0).node.Contents()).toBeDefined()
+  })
+})
+
+describe('buildPdf with laid-on pages', () => {
+  it('draws a turned, cropped page from another file into its box', async () => {
+    const a = await pdfSource('a', ['A1'], 90)
+    const sheet: Source = { id: 's', name: '', kind: 'blank', mime: null, bytes: null, pages: [{ width: 595, height: 842 }] }
+    const laid: Page = { id: 'x', sourceId: 'a', index: 0, rotation: 90, crop: { x: 0, y: 0, w: 150, h: 100 } }
+    const pages: Page[] = [{ id: '1', sourceId: 's', index: 0, rotation: 0, annotations: [{ id: 'p', type: 'page', page: laid, x: 50, y: 50, w: 100, h: 150 }] }]
+    const out = await PDFDocument.load(await buildPdf(pages, { a, s: sheet }, 'Blatt'))
+    expect(out.getPageCount()).toBe(1)
+    expect(out.getPage(0).getSize()).toEqual({ width: 595, height: 842 })
+    // The laid-on page arrives as a form XObject.
+    expect(out.getPage(0).node.Resources()?.toString()).toContain('XObject')
   })
 })

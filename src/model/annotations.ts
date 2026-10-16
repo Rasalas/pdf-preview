@@ -12,6 +12,8 @@ export function bounds(a: Annotation, measure: Measure): Rect {
       return union(a.rects)
     case 'rect':
     case 'ellipse':
+    case 'page':
+    case 'image':
       return { x: a.x, y: a.y, w: a.w, h: a.h }
     case 'line':
       return pointsBox([a.p1, a.p2])
@@ -33,6 +35,8 @@ export function translate(a: Annotation, dx: number, dy: number): Annotation {
     case 'rect':
     case 'ellipse':
     case 'text':
+    case 'page':
+    case 'image':
       return { ...a, x: a.x + dx, y: a.y + dy }
     case 'line':
       return { ...a, p1: p(a.p1), p2: p(a.p2) }
@@ -49,9 +53,12 @@ export function resize(a: Annotation, from: Rect, to: Rect): Annotation {
   switch (a.type) {
     case 'rect':
     case 'ellipse':
+    case 'page':
+    case 'image':
       return { ...a, ...to }
     case 'ink':
-      return { ...a, paths: a.paths.map((path) => path.map(p)) }
+      // The stroke grows with the drawing, so a scaled signature looks the same.
+      return { ...a, paths: a.paths.map((path) => path.map(p)), width: Math.max(0.1, a.width * Math.sqrt(sx * sy)) }
     case 'line':
       return { ...a, p1: p(a.p1), p2: p(a.p2) }
     case 'text':
@@ -88,6 +95,20 @@ export function rotationTransform(size: PageSize, rotation: Rotation, scale: num
       return `translate(${w}px, ${h}px) rotate(180deg)`
     case 270:
       return `translate(0, ${w}px) rotate(270deg)`
+  }
+}
+
+/** SVG matrix that turns a page's own space into its view with `rotation` applied, origin top-left. */
+export function viewMatrix(size: PageSize, rotation: Rotation): [number, number, number, number, number, number] {
+  switch (rotation) {
+    case 0:
+      return [1, 0, 0, 1, 0, 0]
+    case 90:
+      return [0, 1, -1, 0, size.height, 0]
+    case 180:
+      return [-1, 0, 0, -1, size.width, size.height]
+    case 270:
+      return [0, -1, 1, 0, 0, size.width]
   }
 }
 

@@ -35,7 +35,8 @@ export async function onFilesOpened(handler: () => void): Promise<() => void> {
 export async function saveWithDialog(bytes: Uint8Array, name: string): Promise<boolean> {
   const { save } = await import('@tauri-apps/plugin-dialog')
   const { writeFile } = await import('@tauri-apps/plugin-fs')
-  const path = await save({ defaultPath: name, filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+  const ext = name.split('.').pop()!.toLowerCase()
+  const path = await save({ defaultPath: name, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] })
   if (!path) return false
   await writeFile(path, bytes)
   return true

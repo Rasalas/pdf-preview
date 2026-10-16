@@ -5,7 +5,7 @@ import { newId } from '../model/ids'
 import { rotatedSize } from '../model/pages'
 import type { Annotation, Page, Point, Rect, Sources } from '../model/types'
 import type { Entered, FieldValue } from '../model/forms'
-import { AnnotationLayer, type Interaction, type MarkupStyle, type Signature, type Tool } from './AnnotationLayer'
+import { AnnotationLayer, cancelStrokes, type Interaction, type MarkupStyle, type Signature, type Tool } from './AnnotationLayer'
 import { CropBar, CropOverlay } from './Crop'
 import { FormLayer } from './FormLayer'
 import { pageForm, type PageForm } from '../pdf/forms'
@@ -13,6 +13,7 @@ import type { OcrPage, OcrResults } from '../model/ocr'
 import { renderOcrLayer } from '../ocr/layer'
 import { renderPage, renderTextLayer } from '../pdf/pdfjs'
 import { matchPieces } from '../pdf/text'
+import { PAGES_MIME } from './Sidebar'
 
 export type Zoom = 'fit' | number
 
@@ -24,6 +25,8 @@ export interface ActiveHit {
 }
 
 const PX_PER_PT = 96 / 72
+const MIN_ZOOM = 0.25
+const MAX_ZOOM = 4
 /** Room kept for the crop bar below the page being cropped, in CSS pixels. */
 const CROP_BAR = 72
 
@@ -50,6 +53,10 @@ interface Props {
   /** Applies the crop to the page being cropped, and to all `ids` if `all`; null removes it. */
   onCrop?: (crop: Rect | null, all: boolean) => void
   onCancelCrop?: () => void
+  /** Pinching with two fingers while drawing sets the zoom. */
+  onZoom?: (zoom: number) => void
+  /** A page dragged from the sidebar was dropped on page `target` at `at` (target's own space). */
+  onPlace?: (target: string, at: Point, dragged: string, copy: boolean) => void
 }
 
 /** The page being cropped. It is shown whole, with the current crop selected, until the crop is applied or cancelled. */
@@ -80,7 +87,7 @@ export interface Markup {
   onRemove: (pageId: string, id: string) => void
 }
 
-export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup, forms, ocr, padding = 24, fitEach = false, crop = null, onCrop, onCancelCrop }: Props) {
+export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolledTo, onScale, query, activeHit, markup, forms, ocr, padding = 24, fitEach = false, crop = null, onCrop, onCancelCrop, onPlace, onZoom }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const elements = useRef(new Map<string, HTMLDivElement>())
   const [width, setWidth] = useState(0)
@@ -113,8 +120,17 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
       : scale
   useEffect(() => onScale(reported), [reported, onScale])
 
-  // Keep the page under the reading line in place while zooming or resizing.
+  // While pinching, the content under the fingers stays under them; otherwise the page under the reading line stays put.
+  const pinchScroll = useRef<{ left: number; top: number } | null>(null)
   useLayoutEffect(() => {
+    const pinch = pinchScroll.current
+    if (pinch) {
+      pinchScroll.current = null
+      ignoreScrollUntil.current = performance.now() + 100
+      scroller.current!.scrollLeft = pinch.left
+      scroller.current!.scrollTop = pinch.top
+      return
+    }
     const a = anchor.current
     const el = a && elements.current.get(a.id)
     if (!el) return
@@ -140,6 +156,85 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeHit?.nonce])
+
+  const drawingTool = markup.tool !== 'select' && markup.tool !== 'highlight'
+  const live = useRef({ scale: reported, onZoom })
+  live.current = { scale: reported, onZoom }
+
+  // Fingers while a drawing tool is on: one draws, two pan and zoom. Once a stylus has drawn,
+  // one finger pans as well, so a hand resting on the screen does not draw.
+  useEffect(() => {
+    if (!drawingTool) return
+    const el = scroller.current!
+    const touches = new Map<number, Point>()
+    let drawing = false
+    let stylus = false
+    let gesture: { mid: Point; spread: number; left: number; top: number; scale: number } | null = null
+    let frame = 0
+    const begin = () => {
+      const points = [...touches.values()]
+      gesture = { mid: midpoint(points), spread: spread(points), left: el.scrollLeft, top: el.scrollTop, scale: live.current.scale }
+    }
+    const apply = () => {
+      if (!gesture) return
+      const points = [...touches.values()]
+      const mid = midpoint(points)
+      const r = el.getBoundingClientRect()
+      const pinch = points.length > 1 && gesture.spread > 0
+      const scale = pinch ? Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, (gesture.scale * spread(points)) / gesture.spread)) : gesture.scale
+      const k = scale / gesture.scale
+      const left = (gesture.left + gesture.mid[0] - r.left) * k - (mid[0] - r.left)
+      const top = (gesture.top + gesture.mid[1] - r.top) * k - (mid[1] - r.top)
+      if (Math.abs(scale - live.current.scale) > 0.001) {
+        pinchScroll.current = { left, top }
+        live.current.onZoom?.(scale)
+      } else {
+        el.scrollLeft = left
+        el.scrollTop = top
+      }
+    }
+    const down = (e: PointerEvent) => {
+      if (e.pointerType === 'pen') stylus = true
+      if (e.pointerType !== 'touch') return
+      touches.set(e.pointerId, [e.clientX, e.clientY])
+      const onPage = (e.target as Element).closest('.ann-layer.is-drawing')
+      if (touches.size === 1 && onPage && !stylus) {
+        drawing = true
+        return
+      }
+      if (drawing) cancelStrokes()
+      drawing = false
+      e.stopPropagation()
+      begin()
+    }
+    const move = (e: PointerEvent) => {
+      if (!gesture || !touches.has(e.pointerId)) return
+      touches.set(e.pointerId, [e.clientX, e.clientY])
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(apply)
+    }
+    const up = (e: PointerEvent) => {
+      if (!touches.delete(e.pointerId)) return
+      if (touches.size === 0) {
+        gesture = null
+        drawing = false
+      } else if (gesture) {
+        // Fewer fingers: carry on from where they are.
+        begin()
+      }
+    }
+    el.addEventListener('pointerdown', down, true)
+    addEventListener('pointermove', move)
+    addEventListener('pointerup', up)
+    addEventListener('pointercancel', up)
+    return () => {
+      cancelAnimationFrame(frame)
+      el.removeEventListener('pointerdown', down, true)
+      removeEventListener('pointermove', move)
+      removeEventListener('pointerup', up)
+      removeEventListener('pointercancel', up)
+    }
+  }, [drawingTool])
 
   const frame = useRef(0)
   const onScroll = useCallback(() => {
@@ -174,7 +269,7 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
 
   return (
     <div
-      className={`viewer tool-${markup.tool}`}
+      className={`viewer tool-${markup.tool}${drawingTool ? ' is-drawing-tool' : ''}`}
       ref={scroller}
       onScroll={onScroll}
       onMouseUp={onMouseUp}
@@ -210,6 +305,7 @@ export function Viewer({ pages, sources, zoom, current, scrollRequest, onScrolle
               ocr={ocr[page.sourceId]?.[page.index]}
               onField={(name, value) => forms.onChange(page.sourceId, name, value)}
               cropEdit={cropEdit}
+              onPlace={onPlace}
               interaction={{
                 tool: markup.tool,
                 style: markup.style,
@@ -261,12 +357,13 @@ interface PageProps {
   interaction: Interaction
   /** Set while the page is being cropped: it is laid out whole and its content is inert. */
   cropEdit: { draft: Rect; onChange: (draft: Rect) => void } | null
+  onPlace?: Props['onPlace']
   ref: (el: HTMLDivElement | null) => void
 }
 
 const NO_CANVASES = new Map<string, HTMLCanvasElement[]>()
 
-function ViewerPage({ page, sources, number, width, height, root, query, activeHit, scale, entered, ocr, onField, interaction, cropEdit, ref }: PageProps) {
+function ViewerPage({ page, sources, number, width, height, root, query, activeHit, scale, entered, ocr, onField, interaction, cropEdit, onPlace, ref }: PageProps) {
   const box = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [near, setNear] = useState(false)
@@ -277,6 +374,8 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
   const [form, setForm] = useState<PageForm | null>(null)
   const [canvases, setCanvases] = useState(NO_CANVASES)
   const revealed = useRef(0)
+  const contentBox = useRef<HTMLDivElement>(null)
+  const [dropTarget, setDropTarget] = useState(false)
 
   useEffect(() => {
     const io = new IntersectionObserver(([e]) => setNear(e.isIntersecting), {
@@ -375,17 +474,39 @@ function ViewerPage({ page, sources, number, width, height, root, query, activeH
     }
   }, [spans, query, activeHit])
 
+  const acceptsPages = (e: React.DragEvent) => !!onPlace && !cropEdit && e.dataTransfer.types.includes(PAGES_MIME)
+
   return (
     <div
       ref={(el) => {
         box.current = el
         ref(el)
       }}
-      className={`viewer-page${rendered ? '' : ' is-loading'}${page.crop && !cropEdit ? ' is-cropped' : ''}`}
+      className={`viewer-page${rendered ? '' : ' is-loading'}${page.crop && !cropEdit ? ' is-cropped' : ''}${dropTarget ? ' is-drop-target' : ''}`}
       style={{ width, height }}
       aria-label={`Seite ${number}`}
+      onDragOver={(e) => {
+        if (!acceptsPages(e)) return
+        e.preventDefault()
+        e.stopPropagation()
+        // ⌥ (Alt) lays a copy on the page, like copying in the Finder.
+        e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move'
+        setDropTarget(true)
+      }}
+      onDragLeave={(e) => {
+        if (!box.current!.contains(e.relatedTarget as Node)) setDropTarget(false)
+      }}
+      onDrop={(e) => {
+        if (!acceptsPages(e)) return
+        e.preventDefault()
+        e.stopPropagation()
+        setDropTarget(false)
+        const r = contentBox.current!.getBoundingClientRect()
+        const at = toPageSpace([(e.clientX - r.left) / scale, (e.clientY - r.top) / scale], sourceSize, page.rotation)
+        onPlace!(page.id, at, e.dataTransfer.getData(PAGES_MIME), e.altKey)
+      }}
     >
-      <div className="page-content" style={content} inert={!!cropEdit}>
+      <div ref={contentBox} className="page-content" style={content} inert={!!cropEdit}>
         <canvas ref={canvas} />
         <div ref={textBox} className="text-box" />
         {form && rendered ? (
@@ -443,6 +564,13 @@ function highlightSelection(pages: Page[], sources: Sources, elements: Map<strin
   }
   selection.removeAllRanges()
 }
+
+const midpoint = (points: Point[]): Point => [
+  points.reduce((sum, p) => sum + p[0], 0) / points.length,
+  points.reduce((sum, p) => sum + p[1], 0) / points.length,
+]
+
+const spread = (points: Point[]) => (points.length < 2 ? 0 : Math.hypot(points[0][0] - points[1][0], points[0][1] - points[1][1]))
 
 function isWithin(el: Element, box: Element): boolean {
   const r = el.getBoundingClientRect()
