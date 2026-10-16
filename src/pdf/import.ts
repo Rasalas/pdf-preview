@@ -114,4 +114,4 @@ export function blankSource(size: PageSize): Source {
   return { id: newId(), name: 'Leere Seite', kind: 'blank', mime: null, bytes: null, pages: [size] }
 }
 
-export const A4: PageSize = { width: 595.28, height: 841.89 }
+export { A4 } from '../model/pages'

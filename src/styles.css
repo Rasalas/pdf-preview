@@ -244,27 +244,37 @@ button { font: inherit; color: inherit; }
 .gap-add::after { content: ''; position: absolute; inset: -5px; border-radius: 50%; }
 .gap-add:hover { background: var(--accent-strong); }
 
-.add-tile {
+.sidebar-fab {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 4;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
-  height: 64px;
-  margin: 6px auto 0;
-  padding: 0 6px;
-  border: 1.5px dashed var(--text-3);
-  border-radius: 6px;
-  background: none;
-  color: var(--text-2);
-  font-size: 11px;
-  line-height: 1.2;
-  text-align: center;
-  cursor: default;
+  gap: 6px;
+  height: 38px;
+  padding: 0 15px 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 6px 16px -4px rgb(0 0 0 / 0.35);
+  transform: translateX(-50%);
+  cursor: pointer;
+  transition: background 0.12s, box-shadow 0.12s;
 }
-.add-tile:hover, .add-tile.is-target { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+.sidebar-fab:hover, .sidebar-fab.is-open { background: var(--accent-strong); box-shadow: 0 1px 2px rgb(0 0 0 / 0.2), 0 8px 20px -4px rgb(0 0 0 / 0.4); }
+.sidebar-fab:active { transform: translateX(-50%) scale(0.97); }
+/* Room below the last page, so the button never covers it. */
+.sidebar .sidebar-list { padding-bottom: 76px; }
 
 .viewer { flex: 1; min-width: 0; overflow: auto; outline: none; background: var(--canvas); }
+/* Drawing: the app pans and zooms for two fingers itself (see Viewer). */
+.viewer.is-drawing-tool { touch-action: none; }
 .viewer-pages { display: flex; flex-direction: column; align-items: center; min-width: min-content; }
 .viewer-page { position: relative; flex: none; background: #fff; box-shadow: var(--page-shadow); }
 .viewer-page canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -626,6 +636,10 @@ select.form-input.is-list { padding-inline: 0; }
 .signature-item:hover .signature-delete, .signature-delete:focus-visible { opacity: 1; }
 .signature-new { padding: 6px 8px; border: 0; border-radius: 6px; background: none; text-align: left; font-weight: 500; }
 .signature-new:hover { background: var(--accent); color: var(--on-accent); }
+.signature-transfer { display: flex; gap: 2px; }
+.signature-transfer button { flex: 1; display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-2); font-size: 12px; text-align: left; }
+.signature-transfer button:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
+.signature-transfer button:disabled { opacity: 0.45; }
 .signature-note { margin: 2px 8px 4px; color: var(--text-3); font-size: 11px; }
 
 /* Annotations */
@@ -634,6 +648,8 @@ select.form-input.is-list { padding-inline: 0; }
 .ann-layer.is-drawing { pointer-events: auto; cursor: crosshair; touch-action: none; }
 .ann-layer.is-text { cursor: text; }
 .ann.is-interactive { pointer-events: visiblePainted; cursor: move; }
+.ann-layer svg.ann-placed { overflow: hidden; }
+.viewer-page.is-drop-target { outline: 3px solid var(--accent); outline-offset: 2px; }
 .ann-highlight { mix-blend-mode: multiply; opacity: 0.4; }
 .ann-selection { pointer-events: none; stroke: var(--accent); }
 .ann-handle { pointer-events: all; fill: #fff; stroke: var(--accent); cursor: grab; }
@@ -751,6 +767,9 @@ select.form-input.is-list { padding-inline: 0; }
 .signature-pad { display: block; width: 100%; height: 200px; border-radius: 10px; background: #fff; color: #1d1d1b; box-shadow: inset 0 0 0 0.5px var(--hairline); cursor: crosshair; touch-action: none; }
 .signature-baseline { stroke: #c8c7c2; stroke-width: 1; stroke-dasharray: 4 4; }
 .dialog-actions { display: flex; gap: 8px; margin-top: 14px; }
+.signature-inks { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.signature-inks .swatch { width: 22px; height: 22px; }
+.signature-inks span { margin-left: 4px; color: var(--text-3); font-size: 12px; }
 .dialog-actions > span { flex: 1; }
 .password { width: min(400px, calc(100vw - 32px)); }
 .jbig2 { width: min(400px, calc(100vw - 32px)); }

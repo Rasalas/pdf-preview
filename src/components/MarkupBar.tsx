@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { inkPath, type MarkupStyle, type Signature, type Tool } from './AnnotationLayer'
+import { nibPaths, type MarkupStyle, type Signature, type Tool } from './AnnotationLayer'
 import { Icon, type IconName } from './icons'
 
 export const COLORS = ['#e5383b', '#f28c28', '#f5c400', '#2fa84f', '#2b7de9', '#8a4fd8', '#1d1d1b']
@@ -11,6 +11,7 @@ const TOOLS: { tool: Tool; icon: IconName; label: string }[] = [
   { tool: 'select', icon: 'cursor', label: 'Auswählen (Text und Markierungen)' },
   { tool: 'highlight', icon: 'marker', label: 'Text hervorheben' },
   { tool: 'ink', icon: 'pen', label: 'Zeichnen' },
+  { tool: 'nib', icon: 'nib', label: 'Füller (dünn bei schnellen Strichen, mit Stift nach Druck)' },
   { tool: 'rect', icon: 'square', label: 'Rechteck' },
   { tool: 'ellipse', icon: 'circle', label: 'Oval' },
   { tool: 'line', icon: 'line', label: 'Linie' },
@@ -31,6 +32,8 @@ interface Props {
   onHighlightColor: (color: string) => void
   onSignature: (s: Signature) => void
   onNewSignature: () => void
+  onImportSignatures: () => void
+  onExportSignatures: () => void
   onDeleteSignature: (id: string) => void
   /** Touch layout: two rows at the bottom of the screen with a done button. */
   compact?: boolean
@@ -74,7 +77,11 @@ export function MarkupBar(p: Props) {
                     }}
                   >
                     <svg viewBox={`-4 -4 ${s.w + 8} ${s.h + 8}`} height="44">
-                      <path d={inkPath(s.paths)} fill="none" stroke="currentColor" strokeWidth={Math.max(s.w, s.h) / 80} strokeLinecap="round" strokeLinejoin="round" />
+                      {s.image ? (
+                        <image href={s.image} width={s.w} height={s.h} />
+                      ) : (
+                        <path d={nibPaths(s.paths, Math.max(s.w, s.h) / 100, s.pressures)} fill={s.color ?? 'currentColor'} />
+                      )}
                     </svg>
                   </button>
                   <button className="signature-delete" aria-label="Unterschrift löschen" onClick={() => p.onDeleteSignature(s.id)}>
@@ -92,7 +99,32 @@ export function MarkupBar(p: Props) {
               >
                 Neue Unterschrift …
               </button>
-              <p className="signature-note">Unterschriften werden nur in diesem Browser gespeichert.</p>
+              <div className="signature-transfer">
+                <button
+                  role="menuitem"
+                  title="Unterschriften-Datei (JSON) oder Bild einer Unterschrift (PNG, JPEG)"
+                  onClick={() => {
+                    setSignatureMenu(false)
+                    p.onImportSignatures()
+                  }}
+                >
+                  <Icon name="import" width={14} />
+                  Importieren …
+                </button>
+                <button
+                  role="menuitem"
+                  disabled={!p.signatures.length}
+                  title="Als Datei sichern, etwa für einen anderen Browser oder ein anderes Gerät"
+                  onClick={() => {
+                    setSignatureMenu(false)
+                    p.onExportSignatures()
+                  }}
+                >
+                  <Icon name="export" width={14} />
+                  Exportieren …
+                </button>
+              </div>
+              <p className="signature-note">Unterschriften werden nur in diesem Browser gespeichert. Mit „Exportieren“ nimmst du sie in einen anderen mit.</p>
             </div>
           ) : null}
         </div>
@@ -171,6 +203,8 @@ function hint(tool: Tool, signature: Signature | null): string {
       return 'Text auswählen, um ihn hervorzuheben'
     case 'ink':
       return 'Auf der Seite zeichnen'
+    case 'nib':
+      return 'Schreiben wie mit Füller: langsam dick, schnell dünn'
     case 'text':
       return 'Auf die Seite klicken und schreiben'
     case 'signature':

@@ -40,6 +40,13 @@ describe('annotation geometry', () => {
     const big = resize(ink, bounds(ink, () => 0), { x: 0, y: 0, w: 20, h: 40 })
     expect(big.type === 'ink' && big.paths[0][1]).toEqual([20, 40])
   })
+  it('scales the stroke of drawings and signatures with them', () => {
+    const sig: Annotation = { id: 's', type: 'ink', nib: true, color: '#000', width: 2, paths: [[[0, 0], [100, 40]]] }
+    const half = resize(sig, bounds(sig, () => 0), { x: 0, y: 0, w: 50, h: 20 })
+    expect(half.type === 'ink' && half.width).toBe(1)
+    const line: Annotation = { id: 'l', type: 'line', color: '#000', width: 2, arrow: false, p1: [0, 0], p2: [10, 10] }
+    expect(resize(line, bounds(line, () => 0), { x: 0, y: 0, w: 20, h: 20 })).toMatchObject({ width: 2 })
+  })
   it('measures text boxes by line', () => {
     const text: Annotation = { id: 't', type: 'text', color: '#000', size: 10, x: 0, y: 0, text: 'ab\nabcd' }
     expect(bounds(text, (s, size) => s.length * size)).toEqual({ x: 0, y: 0, w: 40, h: 24 })

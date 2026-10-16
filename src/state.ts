@@ -1,10 +1,11 @@
 import { sameValue, type FieldValue, type FieldValues } from './model/forms'
 import { commit, createHistory, redo, undo, type History } from './model/history'
 import { newId } from './model/ids'
-import { clampRect, normalizeCrop, sameCropFor } from './model/crop'
+import { clampRect, displayedSize, normalizeCrop, sameCropFor } from './model/crop'
 import type { OcrPage, OcrResults } from './model/ocr'
-import { cropPages, duplicatePages, insertPages, movePages, removePages, rotatePages } from './model/pages'
-import type { Annotation, Page, Rect, Source, Sources } from './model/types'
+import { cropPages, duplicatePages, insertPages, movePages, normalizeRotation, removePages, rotatePages } from './model/pages'
+import { layoutSheet, placeAt } from './model/sheet'
+import type { Annotation, Page, Point, Rect, Source, Sources } from './model/types'
 
 export interface State {
   history: History<Page[]>
@@ -33,6 +34,10 @@ export type Action =
   | { type: 'nudge'; delta: -1 | 1 }
   | { type: 'rotate'; delta: number }
   | { type: 'duplicate' }
+  /** Lays the pages `ids` onto a new A4 sheet, which takes the place of the first of them. */
+  | { type: 'combine'; ids: string[] }
+  /** Lays the pages `ids` onto page `target`, centred on `at` if given (target's own space). Moves them unless `copy`. */
+  | { type: 'place'; ids: string[]; target: string; at: Point | null; copy: boolean }
   /** Crops a page (null shows all of it again); the pages in `also` get the same rectangle relative to their size. */
   | { type: 'crop'; pageId: string; crop: Rect | null; also?: string[] }
   | { type: 'undo' }
@@ -106,6 +111,53 @@ export function reducer(state: State, action: Action): State {
       if (selected.size === 0) return state
       const r = duplicatePages(pages, selected, newId)
       return withSelection(edit(state, r.pages), r.copies)
+    }
+    case 'combine': {
+      const ids = new Set(action.ids)
+      const chosen = pages.filter((p) => ids.has(p.id))
+      if (chosen.length === 0) return state
+      const { sheet, page } = newSheet(state, chosen)
+      const next = insertPages(removePages(pages, ids), [page], pages.indexOf(chosen[0]))
+      return withSelection(edit({ ...state, sources: { ...state.sources, [sheet.id]: sheet } }, next), [page.id])
+    }
+    case 'place': {
+      const host = pages.find((p) => p.id === action.target)
+      const moving = pages.filter((p) => action.ids.includes(p.id) && p !== host)
+      if (!host || moving.length === 0) return state
+      const gone = action.copy ? new Set<string>() : new Set(moving.map((p) => p.id))
+      const hostSize = sourceSize(state, host)
+      const kind = state.sources[host.sourceId].kind
+
+      // A picture dropped on a picture: both go side by side onto a new sheet, the dropped one first if dropped high.
+      if (kind === 'image') {
+        const first = action.at !== null && action.at[1] < hostSize.height / 2
+        const { sheet, page } = newSheet(state, first ? [...moving, host] : [host, ...moving])
+        const next = removePages(pages, gone).map((p) => (p === host ? page : p))
+        return withSelection(edit({ ...state, sources: { ...state.sources, [sheet.id]: sheet } }, next), [page.id])
+      }
+
+      // Upright on screen, whatever way the host page is turned.
+      const laid = moving.map((p) => ({ ...p, rotation: normalizeRotation(p.rotation - host.rotation) }))
+      const added = laid.map((p): Annotation & { type: 'page' } => ({ id: newId(), type: 'page', page: p, x: 0, y: 0, w: 0, h: 0 }))
+      let annotations: Annotation[]
+      if (kind === 'blank') {
+        // A sheet keeps its pages apart: all of them are laid out anew, the dropped ones where they were let go.
+        const own = (host.annotations ?? []).filter((a) => a.type === 'page')
+        const order = readingOrder(own)
+        const at = action.at ? order.filter((a) => before(a, action.at!)).length : order.length
+        const all = [...order.slice(0, at), ...added, ...order.slice(at)]
+        const { places } = layoutSheet(all.map((a) => displayedSize(sourceSize(state, a.page), a.page)), [hostSize])
+        const placed = new Map(all.map((a, i) => [a.id, { ...a, ...places[i] }]))
+        annotations = [...(host.annotations ?? []).map((a) => placed.get(a.id) ?? a), ...added.map((a) => placed.get(a.id)!)]
+      } else {
+        // On a document the page goes where it was dropped, like a stamp.
+        const sizes = laid.map((p) => displayedSize(sourceSize(state, p), p))
+        const rects = action.at && laid.length === 1 ? [placeAt(sizes[0], hostSize, action.at)] : layoutSheet(sizes, [hostSize]).places
+        annotations = [...(host.annotations ?? []), ...added.map((a, i) => ({ ...a, ...rects[i] }))]
+      }
+      const next = removePages(pages, gone).map((p) => (p === host ? { ...p, annotations } : p))
+      const markup = added.length === 1 ? { pageId: host.id, id: added[0].id } : null
+      return { ...withSelection(edit(state, next), [host.id]), markup }
     }
     case 'crop': {
       const from = pages.find((p) => p.id === action.pageId)
@@ -236,6 +288,31 @@ function diffIds(from: Page[], to: Page[]): string[] {
   const before = new Set(from)
   return to.filter((p) => !before.has(p)).map((p) => p.id)
 }
+
+const sourceSize = (state: State, p: Page) => state.sources[p.sourceId].pages[p.index]
+
+/** A blank A4 sheet with `pages` laid onto it in that order. */
+function newSheet(state: State, pages: Page[]): { sheet: Source; page: Page } {
+  const { size, places } = layoutSheet(pages.map((p) => displayedSize(sourceSize(state, p), p)))
+  const sheet: Source = { id: newId(), name: 'Leere Seite', kind: 'blank', mime: null, bytes: null, pages: [size] }
+  const annotations = pages.map((p, i): Annotation => ({ id: newId(), type: 'page', page: p, ...places[i] }))
+  return { sheet, page: { id: newId(), sourceId: sheet.id, index: 0, rotation: 0, annotations } }
+}
+
+const centre = (a: Rect): Point => [a.x + a.w / 2, a.y + a.h / 2]
+
+/** Top to bottom; boxes whose centres share a row go left to right. */
+function readingOrder<T extends Rect>(boxes: T[]): T[] {
+  return [...boxes].sort((a, b) => (sameRow(a, centre(b)) ? centre(a)[0] - centre(b)[0] : centre(a)[1] - centre(b)[1]))
+}
+
+/** Whether `box` comes before the point in reading order. */
+function before(box: Rect, [x, y]: Point): boolean {
+  const [cx, cy] = centre(box)
+  return sameRow(box, [x, y]) ? cx < x : cy < y
+}
+
+const sameRow = (box: Rect, [, y]: Point) => y > box.y && y < box.y + box.h
 
 function baseName(name: string) {
   return name.replace(/\.[^.]+$/, '')

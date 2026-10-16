@@ -8,7 +8,6 @@ import { thumbnailUrl } from '../pdf/pdfjs'
 import { FINE, useMedia } from '../useMedia'
 import { useSettled } from '../useSettled'
 import { AnnotationLayer } from './AnnotationLayer'
-import { Icon } from './icons'
 import { MARGIN, PageHover, type PageActions } from './PageHover'
 
 export const PAGES_MIME = 'application/x-vorschau-pages'
@@ -119,12 +118,6 @@ export function Sidebar({ pages, sources, fields, selection, current, width, onS
           />
         ))}
       </div>
-      {actions ? (
-        <button className={`add-tile${gap === pages.length ? ' is-target' : ''}`} style={{ width: thumbWidth }} onClick={actions.onAdd}>
-          <Icon name="plus" width={18} />
-          Dateien hinzufügen
-        </button>
-      ) : null}
       {hoverable ? <PageHover root={list} pages={pages} actions={actions!} suspended={dragging || gap !== null} /> : null}
     </div>
   )
@@ -218,7 +211,8 @@ function Thumb({ page, sources, entered: enteredNow, number, width, selected, cu
       onContextMenu={(e) => onContextMenu(e, page.id)}
       onDragStart={(e) => {
         e.dataTransfer.setData(PAGES_MIME, page.id)
-        e.dataTransfer.effectAllowed = 'move'
+        // Copy: ⌥ lays a copy onto a page in the viewer.
+        e.dataTransfer.effectAllowed = 'copyMove'
         onDragStart()
       }}
       onDragEnd={onDragEnd}
